@@ -840,6 +840,32 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         if elem2['ACTIVATION'] == "ON-EXIT":
                             elem['AFTER-EVENT'].append(elem2['NAME'])
 
+        # # dump data to debug file
+        # debugger.info("=============Event order: " + task + "===========")
+        # for elem in events_aswc:
+        #     after = []
+        #     present = []
+        #     before = []
+        #     if elem['AFTER-EVENT']:
+        #         present.append(elem['NAME'])
+        #         for event in elem['AFTER-EVENT']:
+        #             after.append(event)
+        #     if elem['AFTER-EVENT']:
+        #         present.append(elem['NAME'])
+        #         for event in elem['BEFORE-EVENT']:
+        #             before.append(event)
+        #     if before:
+        #         for elem in before:
+        #             debugger.info(str(elem))
+        #     if present:
+        #         for elem in present:
+        #             debugger.info(str(elem))
+        #     if after:
+        #         for elem in after:
+        #             debugger.info(str(elem))
+        #     if after or before:
+        #         debugger.info("")
+
         g = Graph(len(events_aswc))
         for elem in events_aswc:
             if elem['AFTER-EVENT']:
@@ -953,12 +979,6 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
             for item in events:
                 d[item['MAPPED-TO-TASK']].append(item)
             for task in d:
-                # dump data to debug file
-                debugger.info("=============Event order: " + task + "===========")
-                for event in d[task]:
-                    debugger.info(str(event['POSITION-IN-TASK']) + ";" + str(event['EVENT']))
-                debugger.info("")
-
                 timing_events = []
                 # search and add only TIMING-EVENTS
                 for event in d[task]:
