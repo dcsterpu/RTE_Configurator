@@ -102,7 +102,9 @@ def main():
     if task_periodicity == '':
         task_periodicity = 0
     else:
-        task_periodicity = int(task_periodicity)
+        task_periodicity = task_periodicity.replace(",", ".")
+        task_periodicity = float(task_periodicity)
+        task_periodicity = task_periodicity*1000
     if args.default_duration == '':
         default_duration = None
     else:
@@ -239,7 +241,7 @@ def move_to_front(event_list):
 def arg_parse(parser):
     parser.add_argument('-in', '--inp', nargs='*', help="input path or file", required=True, default="")
     parser.add_argument('-out', '--out', help="output path", required=False, default="")
-    parser.add_argument('-app_task_periodicity', '--app_task_periodicity', help="task periodicity (ms)", required=False, default="")
+    parser.add_argument('-app_task_periodicity', '--app_task_periodicity', help="task periodicity (s)", required=False, default="")
     parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False, default="")
     parser.add_argument('-out_script', '--out_script', help="output path for Scriptor script file(s)", required=False, default="")
     parser.add_argument('-out_log', '--out_log', help="output path for log file", required=False, default="")
@@ -840,33 +842,8 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         if elem2['ACTIVATION'] == "ON-EXIT":
                             elem['AFTER-EVENT'].append(elem2['NAME'])
 
-        # # dump data to debug file
-        # debugger.info("=============Event order: " + task + "===========")
-        # for elem in events_aswc:
-        #     after = []
-        #     present = []
-        #     before = []
-        #     if elem['AFTER-EVENT']:
-        #         present.append(elem['NAME'])
-        #         for event in elem['AFTER-EVENT']:
-        #             after.append(event)
-        #     if elem['AFTER-EVENT']:
-        #         present.append(elem['NAME'])
-        #         for event in elem['BEFORE-EVENT']:
-        #             before.append(event)
-        #     if before:
-        #         for elem in before:
-        #             debugger.info(str(elem))
-        #     if present:
-        #         for elem in present:
-        #             debugger.info(str(elem))
-        #     if after:
-        #         for elem in after:
-        #             debugger.info(str(elem))
-        #     if after or before:
-        #         debugger.info("")
-
         g = Graph(len(events_aswc))
+        order = []
         for elem in events_aswc:
             if elem['AFTER-EVENT']:
                 i = events_aswc.index(elem)
@@ -876,7 +853,12 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     for element in events_aswc:
                         if element['NAME'] == t.split('/')[-1]:
                             j = events_aswc.index(element)
-                    g.add_edge(j, i)
+                            g.add_edge(j, i)
+                            dictOrder = {}
+                            dictOrder["BEFORE"] = element['NAME']
+                            dictOrder["AFTER"] = elem["NAME"]
+                            dictOrder["VISITED"] = False
+                            order.append(dictOrder)
             if elem['BEFORE-EVENT']:
                 i = events_aswc.index(elem)
                 j = 0
@@ -885,7 +867,12 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     for element in events_aswc:
                         if element['NAME'] == t.split('/')[-1]:
                             j = events_aswc.index(element)
-                    g.add_edge(i, j)
+                            g.add_edge(i, j)
+                            dictOrder = {}
+                            dictOrder["BEFORE"] = elem['NAME']
+                            dictOrder["AFTER"] = element["NAME"]
+                            dictOrder["VISITED"] = False
+                            order.append(dictOrder)
         result = g.is_cyclic()
         error_cycle = []
         if result is not False:
@@ -1079,6 +1066,22 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         objElem['CORE'] = elemAlloc['CORE']
                         objElem['PARTITION'] = elemAlloc['PARTITION']
                         aswcs.append(objElem)
+        # # dump data to debug file
+        debugger.info("=============Event order ===========")
+        # for element in orderUnique:
+        #     debugger.info(element["BEFORE"] + " => " + element["AFTER"])
+        chains = []
+        for index1 in range(len(order)):
+            chain = []
+            chain.append(order[index1]['BEFORE'])
+            chain.append(order[index1]['AFTER'])
+            for index2 in range(len(order)):
+                if index2 != index1:
+                    if order[index1]["AFTER"] == order[index2]["BEFORE"] and order[index2]["VISITED"] is False:
+                        chain.append(order[index2]["AFTER"])
+            chains.append(chain)
+        debugger.info("")
+
         # dump data to debug file
         debugger.info("=============Event detail===========")
         debugger.info("Event;Period;Offset;Duration;Task")
