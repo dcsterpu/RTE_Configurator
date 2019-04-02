@@ -83,6 +83,7 @@ class Graph:
 def main():
     events = []
     aswcs = []
+    swc_types = []
     # parsing the command line arguments
     parser = argparse.ArgumentParser()
     arg_parse(parser)
@@ -98,13 +99,6 @@ def main():
         if composition_name == "":
             print("Composition name must be set if MemMap parameter is present")
             sys.exit(1)
-    task_periodicity = args.app_task_periodicity
-    if task_periodicity == '':
-        task_periodicity = 0
-    else:
-        task_periodicity = task_periodicity.replace(",", ".")
-        task_periodicity = float(task_periodicity)
-        task_periodicity = task_periodicity*1000
     if args.default_duration == '':
         default_duration = None
     else:
@@ -113,6 +107,8 @@ def main():
     path_list = []
     file_list = []
     entry_list = []
+    config_path = args.osconfig
+    config_path = config_path.replace("\\", "/")
     for path in input_path:
         if path.startswith('@'):
             file = open(path[1:])
@@ -150,33 +146,36 @@ def main():
         sys.exit(1)
     output_path = args.out
     output_script = args.out_script
+    output_epc = args.out_epc
     output_log = args.out_log
     if output_path:
         if not os.path.isdir(output_path):
             print("\nError defining the output path!\n")
             sys.exit(1)
-        debugger = set_debugger(output_path)
         if output_log:
             if not os.path.isdir(output_log):
                 print("\nError defining the output log path!\n")
                 sys.exit(1)
             logger = set_logger(output_log)
+            debugger = set_debugger(output_log)
             if mem_map:
                 create_mapping(entry_list, composition_name, output_path, logger)
-            create_list(entry_list, events, aswcs, output_path, task_periodicity, default_duration, logger, debugger)
-            create_script(events, aswcs, output_path)
+            create_list(entry_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
+            #create_script(events, aswcs, output_path)
+            create_configuration(events, aswcs, swc_types, output_path)
         else:
             logger = set_logger(output_path)
+            debugger = set_debugger(output_path)
             if mem_map:
                 create_mapping(entry_list, composition_name, output_path, logger)
-            create_list(entry_list, events, aswcs, output_path, task_periodicity, default_duration, logger, debugger)
-            create_script(events, aswcs, output_path)
+            create_list(entry_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
+            #create_script(events, aswcs, output_path)
+            create_configuration(events, aswcs, swc_types, output_path)
     elif not output_path:
         if output_script:
             if not os.path.isdir(output_script):
                 print("\nError defining the output configuration path!\n")
                 sys.exit(1)
-            debugger = set_debugger(output_script)
             if output_log:
                 if not os.path.isdir(output_log):
                     print("\nError defining the output log path!\n")
@@ -184,14 +183,27 @@ def main():
                 logger = set_logger(output_log)
                 if mem_map:
                     create_mapping(entry_list, composition_name, output_script, logger)
-                create_list(entry_list, events, aswcs, output_script, task_periodicity, default_duration, logger, debugger)
-                create_script(events, aswcs, output_script)
             else:
                 logger = set_logger(output_script)
                 if mem_map:
                     create_mapping(entry_list, composition_name, output_script, logger)
-                create_list(entry_list, events, aswcs, output_script, task_periodicity, default_duration, logger, debugger)
-                create_script(events, aswcs, output_script)
+        if output_epc:
+            if not os.path.isdir(output_epc):
+                print("\nError defining the output configuration path!\n")
+                sys.exit(1)
+            if output_log:
+                if not os.path.isdir(output_log):
+                    print("\nError defining the output log path!\n")
+                    sys.exit(1)
+                logger = set_logger(output_log)
+                debugger = set_debugger(output_log)
+                create_list(entry_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
+                create_configuration(events, aswcs, swc_types, output_epc)
+            else:
+                logger = set_logger(output_epc)
+                debugger = set_debugger(output_epc)
+                create_list(entry_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
+                create_configuration(events, aswcs, swc_types, output_epc)
     else:
         print("\nNo output path defined!\n")
         sys.exit(1)
@@ -238,12 +250,56 @@ def move_to_front(event_list):
     return event_list
 
 
+def merge_events(event_list, logger, output_path):
+    event_names = []
+    events = []
+    for index1 in range(len(event_list)):
+        if event_list[index1]['EVENT'] not in event_names:
+            event_names.append(event_list[index1]['EVENT'])
+            events.append(event_list[index1])
+        else:
+            for index2 in range(len(event_list)):
+                if index1 != index2:
+                    if event_list[index1]['EVENT'] == event_list[index2]['EVENT']:
+                        index_of_events = events.index(event_list[index2])
+                        # print(event_list[index1]['NAME'])
+                        if events[index_of_events]['DURATION'] is None:
+                            events[index_of_events]['DURATION'] = event_list[index1]['DURATION']
+                        if events[index_of_events]['SPECIFIC-TASK'] is None:
+                            events[index_of_events]['SPECIFIC-TASK'] = event_list[index1]['SPECIFIC-TASK']
+                        else:
+                            if event_list[index2]['SPECIFIC-TASK'] != event_list[index1]['SPECIFIC-TASK']:
+                                logger.error('The event with the name ' + event_list[index2]['NAME'] + ' and reference ' + event_list[index2]['EVENT'] + ' has multiple SPECIFIC-TASK allocated')
+                                print('The event with the name ' + event_list[index2]['NAME'] + ' and reference ' + event_list[index2]['EVENT'] + ' has multiple SPECIFIC-TASK allocated')
+                                os.remove(output_path + '/RTE_Config.xml')
+                                sys.exit(1)
+                        if not events[index_of_events]['AFTER-EVENT']:
+                            events[index_of_events]['AFTER-EVENT'] = event_list[index1]['AFTER-EVENT']
+                        else:
+                            if event_list[index1]['AFTER-EVENT']:
+                                for elem in event_list[index1]['AFTER-EVENT']:
+                                    if elem not in events[index_of_events]['AFTER-EVENT']:
+                                        events[index_of_events]['AFTER-EVENT'].append(elem)
+                        if not events[index_of_events]['BEFORE-EVENT']:
+                            events[index_of_events]['BEFORE-EVENT'] = event_list[index1]['BEFORE-EVENT']
+                        else:
+                            if event_list[index1]['BEFORE-EVENT']:
+                                for elem in event_list[index1]['BEFORE-EVENT']:
+                                    if elem not in events[index_of_events]['BEFORE-EVENT']:
+                                        events[index_of_events]['BEFORE-EVENT'].append(elem)
+                        if events[index_of_events]['CATEGORY'] == 'DEFAULT':
+                            events[index_of_events]['CATEGORY'] = event_list[index1]['CATEGORY']
+                    # else:
+                    #     events.append(event_list[index1])
+    return events
+
 def arg_parse(parser):
-    parser.add_argument('-in', '--inp', nargs='*', help="input path or file", required=True, default="")
-    parser.add_argument('-out', '--out', help="output path", required=False, default="")
-    parser.add_argument('-app_task_periodicity', '--app_task_periodicity', help="task periodicity (s)", required=False, default="")
+    parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=True, default="")
+    parser.add_argument('-osconfig', '--osconfig', help="Os Configuration file", required=True, default="")
+    parser.add_argument('-out', '--out', help="Output path", required=False, default="")
     parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False, default="")
-    parser.add_argument('-out_script', '--out_script', help="output path for Scriptor script file(s)", required=False, default="")
+    parser.add_argument('-out_script', '--out_script', help="output path for memory mapping script file", required=False, default="")
+    parser.add_argument('-out_epc', '--out_epc', help="output path for RTE configuration file", required=False, default="")
     parser.add_argument('-out_log', '--out_log', help="output path for log file", required=False, default="")
     parser.add_argument('-MemMap', action="store_const", const="-MemMap", required=False, default="")
     parser.add_argument('-compo', '--compo', help="composition name", required=False, default="")
@@ -270,19 +326,23 @@ def set_debugger(path):
     return debugger
 
 
-def create_list(files_list, events, aswcs, output_path, periodicity, default_duration, logger, debugger):
+def create_list(files_list, config, events, aswcs, swc_types, output_path, default_duration, logger, debugger):
     events_rte = []
     events_aswc = []
     swc_allocation = []
+    ibehaviors = []
+    implementations = []
     compos = []
     error_no = 0
     warning_no = 0
     info_no = 0
+    tasks_general = []
     if default_duration is None:
         event_duration = 1
     else:
         event_duration = default_duration
     try:
+        # parse input files
         for file in files_list:
             if file.endswith('.arxml'):
                 try:
@@ -307,6 +367,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -336,6 +397,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -365,6 +427,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -394,6 +457,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -423,6 +487,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -452,6 +517,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -481,6 +547,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -510,6 +577,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -539,6 +607,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -568,6 +637,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -597,6 +667,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -626,6 +697,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -655,6 +727,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -684,6 +757,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -713,6 +787,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['BEFORE-EVENT'] = []
                     obj_event['AFTER-EVENT'] = []
                     obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                    obj_event['EVENT-REF'] = ''
                     obj_event['CORE'] = ""
                     obj_event['PARTITION'] = ""
                     obj_event['CATEGORY'] = "DEFAULT"
@@ -739,6 +814,20 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     temp = objSw['TYPE'].split('/')
                     objSw['SWC'] = temp[-1]
                     compos.append(objSw)
+                behavior = root.findall(".//{http://autosar.org/schema/r4.0}SWC-INTERNAL-BEHAVIOR")
+                for ib in behavior:
+                    objIB = {}
+                    objIB['NAME'] = ib.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                    objIB['ASWC'] = ib.getparent().getparent().getchildren()[0].text
+                    objIB['ROOT'] = ib.getparent().getparent().getparent().getparent().getchildren()[0].text
+                    ibehaviors.append(objIB)
+                implementation = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                for elem in implementation:
+                    objImp = {}
+                    objImp['NAME'] = elem.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                    objImp['BEHAVIOR'] = elem.find("{http://autosar.org/schema/r4.0}BEHAVIOR-REF").text
+                    objImp['ROOT'] = elem.getparent().getparent().getchildren()[0].text
+                    implementations.append(objImp)
             if file.endswith('.xml'):
                 try:
                     check_if_xml_is_wellformed(file)
@@ -795,6 +884,33 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     obj_event['CORE'] = element.find('CORE').text
                     obj_event['PARTITION'] = element.find('PARTITION').text
                     swc_allocation.append(obj_event)
+        try:
+            check_if_xml_is_wellformed(config)
+            logger.info(' The file ' + config + ' is well-formed')
+            info_no = info_no + 1
+        except Exception as e:
+            logger.error(' The file ' + config + ' is not well-formed: ' + str(e))
+            print(' The file ' + config + ' is not well-formed: ' + str(e))
+            error_no = error_no + 1
+        parser = etree.XMLParser(remove_comments=True)
+        tree = objectify.parse(config, parser=parser)
+        root = tree.getroot()
+        elem_task = root.findall(".//TASK")
+        for elem in elem_task:
+            obj_task = {}
+            obj_task['NAME'] = elem.find('NAME').text
+            obj_task['CATEGORY'] = elem.find('CATEGORY').text
+            if elem.find('PERIODICITY') is not None:
+                obj_task['PERIODICITY'] = elem.find('PERIODICITY').text
+            else:
+                obj_task['PERIODICITY'] = None
+            if elem.find('OFFSET') is not None:
+                obj_task['OFFSET'] = elem.find('OFFSET').text
+            else:
+                obj_task['OFFSET'] = None
+            obj_task['PARTITION'] = elem.getparent().getchildren()[0].text
+            obj_task['CORE'] = elem.getparent().getparent().getchildren()[0].text
+            tasks_general.append(obj_task)
         ###################################
         if error_no != 0:
             print("There is at least one blocking error! Check the generated log.")
@@ -805,6 +921,17 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                 pass
             sys.exit(1)
 
+        for implementation in implementations:
+            for behavior in ibehaviors:
+                if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME']:
+                    objTemp = {}
+                    objTemp['NAME'] = behavior['ASWC']
+                    objTemp['SWC-REF'] = "/" + behavior['ROOT'] + "/" + behavior['ASWC']
+                    objTemp['IMPLEMENTATION-REF'] = "/" + implementation['ROOT'] + "/" + implementation['NAME']
+                    swc_types.append(objTemp)
+
+        events_rte = merge_events(events_rte, logger, output_path)
+
         for elem_rte in events_rte:
             for elem_aswc in events_aswc:
                 if elem_rte['NAME'] == elem_aswc['NAME']:
@@ -812,6 +939,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     elem_aswc['AFTER-EVENT'] = elem_rte['AFTER-EVENT']
                     elem_aswc['CATEGORY'] = elem_rte['CATEGORY']
                     elem_aswc['SPECIFIC-TASK'] = elem_rte['SPECIFIC-TASK']
+                    elem_aswc['EVENT-REF'] = elem_rte['EVENT']
                     if elem_rte['DURATION'] is not None:
                         elem_aswc['DURATION'] = elem_rte['DURATION']
         for elem_swc in swc_allocation:
@@ -829,18 +957,16 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
         # compute max period of the timing events and transform it from s in ms
         max_period = 0
         for elem_aswc in events_aswc:
-            if elem_aswc['EVENT-TYPE'] == 'TIMING-EVENT':
-                if float(elem_aswc['PERIOD']) > max_period:
-                    max_period = float(elem_aswc['PERIOD'])
+            if elem_aswc['EVENT-TYPE'] == 'TIMING-EVENT' and float(elem_aswc['PERIOD']) > max_period:
+                max_period = float(elem_aswc['PERIOD'])
         max_period = max_period * 1000
 
         # TRS.RTECONFIG.FUNC.006
         for elem in events_aswc:
             if elem['ACTIVATION'] == "ON-ENTRY":
                 for elem2 in events_aswc:
-                    if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2['TYPE'] and elem['ASWC'] == elem2['ASWC']:
-                        if elem2['ACTIVATION'] == "ON-EXIT":
-                            elem['AFTER-EVENT'].append(elem2['NAME'])
+                    if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2['TYPE'] and elem['ASWC'] == elem2['ASWC'] and elem2['ACTIVATION'] == "ON-EXIT":
+                        elem['AFTER-EVENT'].append(elem2['NAME'])
 
         g = Graph(len(events_aswc))
         order = []
@@ -900,6 +1026,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         obj_event = {}
                         obj_event['EVENT'] = events_aswc[elem]['NAME']
                         obj_event['TYPE'] = events_aswc[elem]['EVENT-TYPE']
+                        obj_event['EVENT-REF'] = events_aswc[elem]['EVENT-REF']
                         obj_event['ACTIVATION-OFFSET'] = None
                         obj_event['POSITION-IN-TASK'] = None
                         try:
@@ -915,12 +1042,24 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                                 if events_aswc[elem]['SPECIFIC-TASK'] is not None:
                                     obj_event['MAPPED-TO-TASK'] = events_aswc[elem]['SPECIFIC-TASK']
                                 else:
-                                    if events_aswc[elem]['CATEGORY'] == "DEFAULT":
-                                        obj_event['MAPPED-TO-TASK'] = 'TaskApp_' + events_aswc[elem]['CORE'] + '_' + events_aswc[elem]['PARTITION'] + '_PER'
-                                    elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT":
-                                        obj_event['MAPPED-TO-TASK'] = 'TaskApp_' + events_aswc[elem]['CORE'] + '_' + events_aswc[elem]['PARTITION'] + '_EVT'
-                                    elif events_aswc[elem]['CATEGORY'] == "DIAG":
-                                        obj_event['MAPPED-TO-TASK'] = 'TaskDiag_' + events_aswc[elem]['CORE'] + '_' + events_aswc[elem]['PARTITION'] + '_EVT'
+                                    tasked = False
+                                    for task in tasks_general:
+                                        if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                            tasked = True
+                                            break
+                                        elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                            tasked = True
+                                            break
+                                        elif events_aswc[elem]['CATEGORY'] == "DIAG" and task['CATEGORY'] == "DIAG" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                            tasked = True
+                                            break
+                                    if not tasked:
+                                        logger.error('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
+                                        print('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
+                                        error_no = error_no + 1
                         except Exception as e:
                             logger.error('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
                             print('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
@@ -941,26 +1080,34 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         obj_event['INSTANCE'] = None
                         events.append(obj_event)
 
+
+            index_exit = 0
+            index_entry = 0
             for event in events:
                 if event['ACTIVATION'] == "ON-EXIT":
-                    events.insert(0, events.pop(events.index(event)))
+                    events.insert(0, events.pop(index_exit))
+                index_exit = index_exit + 1
             reverse_events = list(reversed(events))
             for event in reverse_events:
                 if event['ACTIVATION'] == "ON-ENTRY":
-                    reverse_events.insert(0, reverse_events.pop(reverse_events.index(event)))
+                    reverse_events.insert(0, reverse_events.pop(index_entry))
+                index_entry = index_entry + 1
             events = list(reversed(reverse_events))
+
             events = sorted(events, key=lambda x: x['MAPPED-TO-TASK'])
             # setting the PositionInTask parameter
             tasks = []
-            for elem in events:
-                if elem['MAPPED-TO-TASK'] not in tasks:
-                    tasks.append(elem['MAPPED-TO-TASK'])
-            for task in tasks:
+            for task in tasks_general:
                 count = 1
                 for elem in events:
-                    if elem['MAPPED-TO-TASK'] == task:
+                    if elem['MAPPED-TO-TASK'] == task['NAME']:
                         elem['POSITION-IN-TASK'] = count
                         count = count + 1
+            for event in events:
+                if event['POSITION-IN-TASK'] is None:
+                    logger.error('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
+                    print('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
+                    error_no = error_no + 1
             # setting the RteActivationOffset parameter
             d = defaultdict(list)
             for item in events:
@@ -973,6 +1120,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                         if event['SPECIFIC-TASK'] is None and event['CATEGORY'] == 'DEFAULT':
                             obj_event = {}
                             obj_event['NAME'] = event['EVENT']
+                            obj_event['REF'] = event['REF']
                             obj_event['DURATION'] = event['DURATION']
                             obj_event['PERIOD'] = event['PERIOD']
                             obj_event['AFTER'] = event['AFTER-EVENT']
@@ -984,16 +1132,21 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                 # compute min task peridicity to use in case of periodicity command line argument not defined
                 max_period = 0
                 task_periodicity = 1
+                task_offset = 0
+                for task_elem in tasks_general:
+                    if task_elem['NAME'] == task:
+                        if task_elem['PERIODICITY'] is not None:
+                            task_periodicity = task_elem['PERIODICITY'].replace(",", ".")
+                            task_periodicity = float(task_periodicity)
+                            task_periodicity = task_periodicity * 1000
+                        if task_elem['OFFSET'] is not None:
+                            task_offset = task_elem['OFFSET'].replace(",", ".")
+                            task_offset = float(task_offset)
+                            task_offset = task_offset * 1000
                 for elem in timing_events:
                     if float(elem['PERIOD']) > max_period:
                         max_period = float(elem['PERIOD'])
-                    if float(elem['PERIOD']) < task_periodicity:
-                        task_periodicity = float(elem['PERIOD'])
                 max_period = max_period * 1000
-                if periodicity == 0:
-                    task_periodicity = task_periodicity * 1000
-                else:
-                    task_periodicity = periodicity
                 number_of_slots = max_period/task_periodicity
                 slots = [[] for i in range(int(number_of_slots))]
                 dprim = defaultdict(list)
@@ -1002,14 +1155,7 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                 dprim = sorted(dprim.items())
                 # for each period time, insert the event on the slot
                 for period in dprim:
-                    if periodicity == 0:
-                        slot_frequency = int((max_period/1000)/float(period[0]))
-                    else:
-                        slot_frequency = int((float(period[0]) * 1000) / task_periodicity)
-                    if slot_frequency < 1:
-                        logger.error('Periodicity('+str(periodicity)+'ms) too small for event ' + period[1][0]['NAME'] + ' with period ' + str(float(period[0])*1000) + 'ms')
-                        print('Periodicity('+str(periodicity)+'ms) too small for event ' + period[1][0]['NAME'] + ' with period ' + str(float(period[0])*1000) + 'ms')
-                        sys.exit(1)
+                    slot_frequency = int((float(period[0]) * 1000) / task_periodicity)
                     event_list = move_to_front(period[1])
                     for event in event_list:
                         if event['COMPUTED'] is not True:
@@ -1042,8 +1188,11 @@ def create_list(files_list, events, aswcs, output_path, periodicity, default_dur
                     if elem['TYPE'] == 'TIMING-EVENT':
                         for slot in slots:
                             iterator = iterator + 1
-                            if elem['EVENT'] in slot:
-                                elem['ACTIVATION-OFFSET'] = iterator * task_periodicity / 1000
+                            event_slot = []
+                            for event in slot:
+                                event_slot.append(event['NAME'])
+                            if elem['EVENT'] in event_slot:
+                                elem['ACTIVATION-OFFSET'] = ((iterator * task_periodicity) + task_offset) / 1000
                                 break
                 ######
             for elemEv in events:
@@ -1164,7 +1313,7 @@ def create_script(events, aswcs, output_path):
             expression_general = ET.SubElement(operation_general, "Expression").text = 'boolean(1)'
             operation_element = ET.SubElement(operations_activation, "Operation")
             operation_element.set('Type', "SetValue")
-            expression_element = ET.SubElement(operation_element, "Expression").text = 'num:i(' + str(event['ACTIVATION-OFFSET']) + ')'
+            expression_element = ET.SubElement(operation_element, "Expression").text = 'num:f(' + str(event['ACTIVATION-OFFSET']) + ')'
         else:
             operations_activation = ET.SubElement(operation_offset, "Operations")
             operation_element = ET.SubElement(operations_activation, "Operation")
@@ -1174,6 +1323,112 @@ def create_script(events, aswcs, output_path):
     pretty_xml = prettify_xml(root_script)
     tree = ET.ElementTree(ET.fromstring(pretty_xml))
     tree.write(output_path + "/RTE_Config.xml", encoding="UTF-8", xml_declaration=True, method="xml")
+
+
+def create_configuration(events, aswcs, swc_types, output_path):
+    NSMAP = {None: 'http://autosar.org/schema/r4.0', "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
+    attr_qname = etree.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
+    rootRte = etree.Element('AUTOSAR', {attr_qname: 'http://autosar.org/schema/r4.0 AUTOSAR_4-2-2_STRICT_COMPACT.xsd'}, nsmap=NSMAP)
+    packages = etree.SubElement(rootRte, 'AR-PACKAGES')
+    package = etree.SubElement(packages, 'AR-PACKAGE')
+    short_name = etree.SubElement(package, 'SHORT-NAME').text = "Rte"
+    elements = etree.SubElement(package, 'ELEMENTS')
+    ecuc_module = etree.SubElement(elements, 'ECUC-MODULE-CONFIGURATION-VALUES')
+    short_name = etree.SubElement(ecuc_module, 'SHORT-NAME').text = "Rte"
+    definition = etree.SubElement(ecuc_module, 'DEFINITION-REF')
+    definition.attrib['DEST'] = "ECUC-MODULE-DEF"
+    definition.text = "/AUTOSAR/EcuDefs/Rte"
+    master_container = etree.SubElement(ecuc_module, 'CONTAINERS')
+    for aswc in aswcs:
+        container_aswc = etree.SubElement(master_container, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_aswc, 'SHORT-NAME').text = aswc['INSTANCE']
+        definition = etree.SubElement(container_aswc, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance"
+        references = etree.SubElement(container_aswc, 'REFERENCE-VALUES')
+        reference1 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/MappedToOsApplicationRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = 'ECUC-CONTAINER-VALUE'
+        value.text = "/Os/Os/OsApp_" + aswc['CORE'] + "_" + aswc['PARTITION']
+        reference2 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-FOREIGN-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteSoftwareComponentInstanceRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "SW-COMPONENT-PROTOTYPE"
+        value.text = "/EcuExtract/TopLevelComposition/" + aswc['INSTANCE']
+        subcontainers = etree.SubElement(container_aswc, 'SUB-CONTAINERS')
+        for event in events:
+            if aswc['INSTANCE'] == event['INSTANCE']:
+                container_event = etree.SubElement(subcontainers, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container_event, 'SHORT-NAME').text = event['EVENT']
+                definition = etree.SubElement(container_event, 'DEFINITION-REF')
+                definition.attrib['DEST'] = 'ECUC-PARAM-CONF-CONTAINER-DEF'
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping"
+                parameters = etree.SubElement(container_event, 'PARAMETER-VALUES')
+                numerical1 = etree.SubElement(parameters, 'ECUC-NUMERICAL-PARAM-VALUE')
+                definition = etree.SubElement(numerical1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-FLOAT-PARAM-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping/RteActivationOffset"
+                if event['ACTIVATION-OFFSET'] is None:
+                    value = etree.SubElement(numerical1, 'VALUE').text = "0"
+                else:
+                    value = etree.SubElement(numerical1, 'VALUE').text = str(event['ACTIVATION-OFFSET'])
+                numerical2 = etree.SubElement(parameters, 'ECUC-NUMERICAL-PARAM-VALUE')
+                definition = etree.SubElement(numerical2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-BOOLEAN-PARAM-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping/RteImmediateRestart"
+                value = etree.SubElement(numerical2, 'VALUE').text = "0"
+                numerical3 = etree.SubElement(parameters, 'ECUC-NUMERICAL-PARAM-VALUE')
+                definition = etree.SubElement(numerical3, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-INTEGER-PARAM-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping/RtePositionInTask"
+                value = etree.SubElement(numerical3, 'VALUE').text = str(event['POSITION-IN-TASK'])
+                references = etree.SubElement(container_event, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-FOREIGN-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping/RteEventRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "RTE-EVENT"
+                value.text = '/' + event['ROOT'] + '/' + event['ASWC'] + '/' + event['IB'] + '/' + event['EVENT']
+                reference2 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentInstance/RteEventToTaskMapping/RteMappedToTaskRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/Os/Os/" + event['MAPPED-TO-TASK']
+    for swc in swc_types:
+        container_swc = etree.SubElement(master_container, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_swc, 'SHORT-NAME').text = "RteSwComponentType_" + swc['NAME']
+        definition = etree.SubElement(container_swc, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentType"
+        references = etree.SubElement(container_swc, 'REFERENCES-VALUES')
+        reference1 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-FOREIGN-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentType/RteComponentTypeRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = "SW-COMPONENT-TYPE"
+        value.text = swc['SWC-REF']
+        reference2 = etree.SubElement(references, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-FOREIGN-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/Rte/RteSwComponentType/RteImplementationRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "SWC-IMPLEMENTATION"
+        value.text = swc['IMPLEMENTATION-REF']
+
+    # generate data
+    pretty_xml = prettify_xml(rootRte)
+    output = etree.ElementTree(etree.fromstring(pretty_xml))
+    output.write(output_path + '/Rte.epc', encoding='UTF-8', xml_declaration=True, method="xml")
+    return
 
 
 def create_mapping(files_list, composition, output_path, logger):
