@@ -209,16 +209,44 @@ def main():
         sys.exit(1)
 
 
+# def findMin(slot_list, frequency):
+#     """
+#     :param slot_list: list of slots to be filled (given as a list of lists)
+#     :param frequency: the frequency of a given event
+#     :return: position in the list that corresponds to the element with the least events already mapped
+#     It takes the first <frequency> elements from the <slot_list> and return the position of the smallest length element
+#     """
+#     firstNSlots = slot_list[:frequency]
+#     pos = firstNSlots.index(min(firstNSlots, key=len))
+#     return pos
 def findMin(slot_list, frequency):
     """
     :param slot_list: list of slots to be filled (given as a list of lists)
     :param frequency: the frequency of a given event
-    :return: position in the list that corresponds to the element with the least events already mapped
-    It takes the first <frequency> elements from the <slot_list> and return the position of the smallest length element
+    :return: position in the list that corresponds to the element with the smallest duration of events already mapped
+    It takes the first <frequency> elements from the <slot_list> and return the position of the smallest duration slot
     """
     firstNSlots = slot_list[:frequency]
-    pos = firstNSlots.index(min(firstNSlots, key=len))
-    return pos
+    min_duration = 1000
+    smallest_slot = 0
+    for slot in firstNSlots:
+        slot_duration = 0
+        for event in slot:
+            slot_duration += float(event['DURATION'])
+        if slot_duration < min_duration:
+            min_duration = slot_duration
+            smallest_slot = firstNSlots.index(slot)
+    return smallest_slot
+
+def findSlot(slot_list, frequency, limit):
+    firstNSlots = slot_list[:frequency]
+    for slot in firstNSlots:
+        slot_duration = 0
+        for event in slot:
+            slot_duration += float(event['DURATION'])
+        if slot_duration < limit:
+            return firstNSlots.index(slot)
+
 
 
 def insertElement(slot_list, position, frequency, element):
@@ -293,9 +321,10 @@ def merge_events(event_list, logger, output_path):
                     #     events.append(event_list[index1])
     return events
 
+
 def arg_parse(parser):
     parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=True, default="")
-    parser.add_argument('-osconfig', '--osconfig', help="Os Configuration file", required=True, default="")
+    parser.add_argument('-osconfig', '--osconfig', help="Os configuration script", required=True, default="")
     parser.add_argument('-out', '--out', help="Output path", required=False, default="")
     parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False, default="")
     parser.add_argument('-out_script', '--out_script', help="output path for memory mapping script file", required=False, default="")
@@ -319,10 +348,10 @@ def set_logger(path):
 
 def set_debugger(path):
     debugger = logging.getLogger('debug')
-    hdlr = logging.FileHandler(path + '/debug_result.log')
+    hdlr = logging.FileHandler(path + '/debug_result.csv')
     debugger.addHandler(hdlr)
     debugger.setLevel(logging.INFO)
-    open(path + '/debug_result.log', 'w').close()
+    open(path + '/debug_result.csv', 'w').close()
     return debugger
 
 
@@ -338,924 +367,946 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
     info_no = 0
     tasks_general = []
     if default_duration is None:
-        event_duration = 1
+        event_duration = 0.001
     else:
         event_duration = default_duration
-    try:
-        # parse input files
-        for file in files_list:
-            if file.endswith('.arxml'):
-                try:
-                    check_if_xml_is_wellformed(file)
-                    logger.info(' The file ' + file + ' is well-formed')
-                    info_no = info_no + 1
-                except Exception as e:
-                    logger.error(' The file ' + file + ' is not well-formed: ' + str(e))
-                    print(' The file ' + file + ' is not well-formed: ' + str(e))
-                    error_no = error_no + 1
-                parser = etree.XMLParser(remove_comments=True)
-                tree = objectify.parse(file, parser=parser)
-                root = tree.getroot()
-                ascre_event = root.findall(".//{http://autosar.org/schema/r4.0}ASYNCHRONOUS-SERVER-CALL-RETURNS-EVENT")
-                for elem in ascre_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                be_event = root.findall(".//{http://autosar.org/schema/r4.0}BACKGROUND-EVENT")
-                for elem in be_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                dree_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-RECEIVE-ERROR-EVENT")
-                for elem in dree_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                dre_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-RECEIVED-EVENT")
-                for elem in dre_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                dsce_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-SEND-COMPLETED-EVENT")
-                for elem in dsce_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                dwce_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-WRITE-COMPLETED-EVENT")
-                for elem in dwce_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                etoe_event = root.findall(".//{http://autosar.org/schema/r4.0}EXTERNAL-TRIGGER-OCCURRED-EVENT")
-                for elem in etoe_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                ie_event = root.findall(".//{http://autosar.org/schema/r4.0}INIT-EVENT")
-                for elem in ie_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                itoe_event = root.findall(".//{http://autosar.org/schema/r4.0}INTERNAL-TRIGGER-OCCURRED-EVENT")
-                for elem in itoe_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                msae_event = root.findall(".//{http://autosar.org/schema/r4.0}MODE-SWITCHED-ACK-EVENT")
-                for elem in msae_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                oie_event = root.findall(".//{http://autosar.org/schema/r4.0}OPERATION-INVOKED-EVENT")
-                for elem in oie_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                smmee_event = root.findall(".//{http://autosar.org/schema/r4.0}SWC-MODE-MANAGER-ERROR-EVENT")
-                for elem in smmee_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                smse_event = root.findall(".//{http://autosar.org/schema/r4.0}SWC-MODE-SWITCH-EVENT")
-                for elem in smse_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "PER"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                te_event = root.findall(".//{http://autosar.org/schema/r4.0}TIMING-EVENT")
-                for elem in te_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "PER"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                thee_event = root.findall(".//{http://autosar.org/schema/r4.0}TRANSFORMER-HARD-ERROR-EVENT")
-                for elem in thee_event:
-                    obj_event = {}
-                    obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
-                    obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
-                    obj_event['TYPE'] = "EVT"
-                    obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['DURATION'] = event_duration
-                    obj_event['BEFORE-EVENT'] = []
-                    obj_event['AFTER-EVENT'] = []
-                    obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
-                    obj_event['EVENT-REF'] = ''
-                    obj_event['CORE'] = ""
-                    obj_event['PARTITION'] = ""
-                    obj_event['CATEGORY'] = "DEFAULT"
-                    obj_event['SPECIFIC-TASK'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
-                        obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
-                    else:
-                        obj_event['ACTIVATION'] = None
-                    if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
-                        obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
-                    else:
-                        obj_event['PERIOD'] = None
-                    obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
-                    obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                    if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
-                        obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
-                    events_aswc.append(obj_event)
-                sw_compos = root.findall(".//{http://autosar.org/schema/r4.0}SW-COMPONENT-PROTOTYPE")
-                for elemSW in sw_compos:
-                    objSw = {}
-                    objSw['NAME'] = str(elemSW.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text)
-                    objSw['TYPE'] = elemSW.find("{http://autosar.org/schema/r4.0}TYPE-TREF").text
-                    temp = objSw['TYPE'].split('/')
-                    objSw['SWC'] = temp[-1]
-                    compos.append(objSw)
-                behavior = root.findall(".//{http://autosar.org/schema/r4.0}SWC-INTERNAL-BEHAVIOR")
-                for ib in behavior:
-                    objIB = {}
-                    objIB['NAME'] = ib.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
-                    objIB['ASWC'] = ib.getparent().getparent().getchildren()[0].text
-                    objIB['ROOT'] = ib.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    ibehaviors.append(objIB)
-                implementation = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
-                for elem in implementation:
-                    objImp = {}
-                    objImp['NAME'] = elem.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
-                    objImp['BEHAVIOR'] = elem.find("{http://autosar.org/schema/r4.0}BEHAVIOR-REF").text
-                    objImp['ROOT'] = elem.getparent().getparent().getchildren()[0].text
-                    implementations.append(objImp)
-            if file.endswith('.xml'):
-                try:
-                    check_if_xml_is_wellformed(file)
-                    logger.info(' The file ' + file + ' is well-formed')
-                    info_no = info_no + 1
-                except Exception as e:
-                    logger.error(' The file ' + file + ' is not well-formed: ' + str(e))
-                    print(' The file ' + file + ' is not well-formed: ' + str(e))
-                    error_no = error_no + 1
-                parser = etree.XMLParser(remove_comments=True)
-                tree = objectify.parse(file, parser=parser)
-                root = tree.getroot()
-                event = root.findall(".//EVENT")
-                for element in event:
-                    name = None
-                    obj_event = {}
-                    after_list = []
-                    before_list = []
-                    task = None
-                    category = 'DEFAULT'
-                    duration = None
-                    for child in element.iterchildren():
-                        if child.tag == 'SHORT-NAME':
-                            name = child.text
-                        if child.tag == 'EVENT-REF':
-                            obj_event['EVENT'] = child.text
-                        if child.tag == 'DURATION':
-                            duration = child.text
-                        if child.tag == 'AFTER-EVENT-REF':
-                            list_of_events = child.findall('.//EVENT-REF')
-                            for elem in list_of_events:
-                                if not elem.text.isspace():
-                                    after_list.append(elem.text)
-                        if child.tag == 'BEFORE-EVENT-REF':
-                            list_of_events = child.findall('.//EVENT-REF')
-                            for elem in list_of_events:
-                                if not elem.text.isspace():
-                                    before_list.append(elem.text)
-                        if child.tag == 'SPECIFIC-TASK':
-                            task = child.text
-                        if child.tag == 'CATEGORY':
-                            category = child.text
-                    obj_event['NAME'] = name
-                    obj_event['DURATION'] = duration
-                    obj_event['AFTER-EVENT'] = after_list
-                    obj_event['BEFORE-EVENT'] = before_list
-                    obj_event['SPECIFIC-TASK'] = task
-                    obj_event['CATEGORY'] = category
-                    events_rte.append(obj_event)
-                swc = root.findall(".//SWC-ALLOCATION")
-                for element in swc:
-                    obj_event = {}
-                    obj_event['SWC'] = element.find('SWC-REF').text
-                    obj_event['CORE'] = element.find('CORE').text
-                    obj_event['PARTITION'] = element.find('PARTITION').text
-                    swc_allocation.append(obj_event)
-        try:
-            check_if_xml_is_wellformed(config)
-            logger.info(' The file ' + config + ' is well-formed')
-            info_no = info_no + 1
-        except Exception as e:
-            logger.error(' The file ' + config + ' is not well-formed: ' + str(e))
-            print(' The file ' + config + ' is not well-formed: ' + str(e))
-            error_no = error_no + 1
-        parser = etree.XMLParser(remove_comments=True)
-        tree = objectify.parse(config, parser=parser)
-        root = tree.getroot()
-        elem_task = root.findall(".//TASK")
-        for elem in elem_task:
-            obj_task = {}
-            obj_task['NAME'] = elem.find('NAME').text
-            obj_task['CATEGORY'] = elem.find('CATEGORY').text
-            if elem.find('PERIODICITY') is not None:
-                obj_task['PERIODICITY'] = elem.find('PERIODICITY').text
-            else:
-                obj_task['PERIODICITY'] = None
-            if elem.find('OFFSET') is not None:
-                obj_task['OFFSET'] = elem.find('OFFSET').text
-            else:
-                obj_task['OFFSET'] = None
-            obj_task['PARTITION'] = elem.getparent().getchildren()[0].text
-            obj_task['CORE'] = elem.getparent().getparent().getchildren()[0].text
-            tasks_general.append(obj_task)
-        ###################################
-        if error_no != 0:
-            print("There is at least one blocking error! Check the generated log.")
-            print("\nExecution stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+    #try:
+    # parse input files
+    for file in files_list:
+        if file.endswith('.arxml'):
             try:
-                os.remove(output_path + '/RTE_Config.xml')
-            except OSError:
-                pass
-            sys.exit(1)
-
-        for implementation in implementations:
-            for behavior in ibehaviors:
-                if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME']:
-                    objTemp = {}
-                    objTemp['NAME'] = behavior['ASWC']
-                    objTemp['SWC-REF'] = "/" + behavior['ROOT'] + "/" + behavior['ASWC']
-                    objTemp['IMPLEMENTATION-REF'] = "/" + implementation['ROOT'] + "/" + implementation['NAME']
-                    swc_types.append(objTemp)
-
-        events_rte = merge_events(events_rte, logger, output_path)
-
-        for elem_rte in events_rte:
-            for elem_aswc in events_aswc:
-                if elem_rte['NAME'] == elem_aswc['NAME']:
-                    elem_aswc['BEFORE-EVENT'] = elem_rte['BEFORE-EVENT']
-                    elem_aswc['AFTER-EVENT'] = elem_rte['AFTER-EVENT']
-                    elem_aswc['CATEGORY'] = elem_rte['CATEGORY']
-                    elem_aswc['SPECIFIC-TASK'] = elem_rte['SPECIFIC-TASK']
-                    elem_aswc['EVENT-REF'] = elem_rte['EVENT']
-                    if elem_rte['DURATION'] is not None:
-                        elem_aswc['DURATION'] = elem_rte['DURATION']
-        for elem_swc in swc_allocation:
-            for elem_aswc in events_aswc:
-                if "/"+elem_aswc['ROOT'] + "/" + elem_aswc['ASWC'] in elem_swc['SWC']:
-                    elem_aswc['CORE'] = elem_swc['CORE']
-                    elem_aswc['PARTITION'] = elem_swc['PARTITION']
-
-        # remove OIE events that have the DEFAULT category
-        for event in events_aswc[:]:
-            if event['EVENT-TYPE'] == "OPERATION-INVOKED-EVENT":
-                if event['CATEGORY'] == "DEFAULT":
-                    events_aswc.remove(event)
-
-        # compute max period of the timing events and transform it from s in ms
-        max_period = 0
-        for elem_aswc in events_aswc:
-            if elem_aswc['EVENT-TYPE'] == 'TIMING-EVENT' and float(elem_aswc['PERIOD']) > max_period:
-                max_period = float(elem_aswc['PERIOD'])
-        max_period = max_period * 1000
-
-        # TRS.RTECONFIG.FUNC.006
-        for elem in events_aswc:
-            if elem['ACTIVATION'] == "ON-ENTRY":
-                for elem2 in events_aswc:
-                    if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2['TYPE'] and elem['ASWC'] == elem2['ASWC'] and elem2['ACTIVATION'] == "ON-EXIT":
-                        elem['AFTER-EVENT'].append(elem2['NAME'])
-
-        g = Graph(len(events_aswc))
-        order = []
-        for elem in events_aswc:
-            if elem['AFTER-EVENT']:
-                i = events_aswc.index(elem)
-                j = 0
-                temp = elem['AFTER-EVENT']
-                for t in temp:
-                    for element in events_aswc:
-                        if element['NAME'] == t.split('/')[-1]:
-                            j = events_aswc.index(element)
-                            g.add_edge(j, i)
-                            dictOrder = {}
-                            dictOrder["BEFORE"] = element['NAME']
-                            dictOrder["AFTER"] = elem["NAME"]
-                            dictOrder["VISITED"] = False
-                            order.append(dictOrder)
-            if elem['BEFORE-EVENT']:
-                i = events_aswc.index(elem)
-                j = 0
-                temp = elem['BEFORE-EVENT']
-                for t in temp:
-                    for element in events_aswc:
-                        if element['NAME'] == t.split('/')[-1]:
-                            j = events_aswc.index(element)
-                            g.add_edge(i, j)
-                            dictOrder = {}
-                            dictOrder["BEFORE"] = elem['NAME']
-                            dictOrder["AFTER"] = element["NAME"]
-                            dictOrder["VISITED"] = False
-                            order.append(dictOrder)
-        result = g.is_cyclic()
-        error_cycle = []
-        if result is not False:
-            for index in range(len(result)):
-                for elem in range(len(events_aswc)):
-                    if result[index] == elem:
-                        error_cycle.append(events_aswc[elem]['NAME'])
-            text = ""
-            iter = -1
-            for elem in error_cycle:
-                iter = iter + 1
-                if iter == len(error_cycle) - 1:
-                    text = text + elem
+                check_if_xml_is_wellformed(file)
+                logger.info(' The file ' + file + ' is well-formed')
+                info_no = info_no + 1
+            except Exception as e:
+                logger.error(' The file ' + file + ' is not well-formed: ' + str(e))
+                print(' The file ' + file + ' is not well-formed: ' + str(e))
+                error_no = error_no + 1
+            parser = etree.XMLParser(remove_comments=True)
+            tree = objectify.parse(file, parser=parser)
+            root = tree.getroot()
+            ascre_event = root.findall(".//{http://autosar.org/schema/r4.0}ASYNCHRONOUS-SERVER-CALL-RETURNS-EVENT")
+            for elem in ascre_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
                 else:
-                    text = text + elem + " => "
-            logger.error('There is a cycle in task sequencing: ' + text)
-            print('There is a cycle in task sequencing: ' + text)
-            error_no = error_no + 1
-        else:
-            sequence = g.topological_sort()
-            # setting the EventToTaskMapping parameter
-            for index in range(len(sequence)):
-                for elem in range(len(events_aswc)):
-                    if sequence[index] == elem:
-                        obj_event = {}
-                        obj_event['EVENT'] = events_aswc[elem]['NAME']
-                        obj_event['TYPE'] = events_aswc[elem]['EVENT-TYPE']
-                        obj_event['EVENT-REF'] = events_aswc[elem]['EVENT-REF']
-                        obj_event['ACTIVATION-OFFSET'] = None
-                        obj_event['POSITION-IN-TASK'] = None
-                        try:
-                            if events_aswc[elem]['CORE'] == '':
-                                logger.error('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
-                                print('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
-                                error_no = error_no + 1
-                            elif events_aswc[elem]['PARTITION'] == '':
-                                logger.error('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
-                                print('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
-                                error_no = error_no + 1
-                            else:
-                                if events_aswc[elem]['SPECIFIC-TASK'] is not None:
-                                    obj_event['MAPPED-TO-TASK'] = events_aswc[elem]['SPECIFIC-TASK']
-                                else:
-                                    tasked = False
-                                    for task in tasks_general:
-                                        if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
-                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
-                                            tasked = True
-                                            break
-                                        elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
-                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
-                                            tasked = True
-                                            break
-                                        elif events_aswc[elem]['CATEGORY'] == "DIAG" and task['CATEGORY'] == "DIAG" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
-                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
-                                            tasked = True
-                                            break
-                                    if not tasked:
-                                        logger.error('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
-                                        print('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
-                                        error_no = error_no + 1
-                        except Exception as e:
-                            logger.error('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
-                            print('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
-                            error_no = error_no + 1
-                        obj_event['REF'] = events_aswc[elem]['REF']
-                        obj_event['PERIOD'] = events_aswc[elem]['PERIOD']
-                        obj_event['DURATION'] = events_aswc[elem]['DURATION']
-                        obj_event['AFTER-EVENT'] = events_aswc[elem]['AFTER-EVENT']
-                        obj_event['BEFORE-EVENT'] = events_aswc[elem]['BEFORE-EVENT']
-                        obj_event['ACTIVATION'] = events_aswc[elem]['ACTIVATION']
-                        obj_event['IB'] = events_aswc[elem]['IB']
-                        obj_event['ASWC'] = events_aswc[elem]['ASWC']
-                        obj_event['ROOT'] = events_aswc[elem]['ROOT']
-                        obj_event['CATEGORY'] = events_aswc[elem]['CATEGORY']
-                        obj_event['SPECIFIC-TASK'] = events_aswc[elem]['SPECIFIC-TASK']
-                        obj_event['CORE'] = None
-                        obj_event['PARTITION'] = None
-                        obj_event['INSTANCE'] = None
-                        events.append(obj_event)
-
-
-            index_exit = 0
-            index_entry = 0
-            for event in events:
-                if event['ACTIVATION'] == "ON-EXIT":
-                    events.insert(0, events.pop(index_exit))
-                index_exit = index_exit + 1
-            reverse_events = list(reversed(events))
-            for event in reverse_events:
-                if event['ACTIVATION'] == "ON-ENTRY":
-                    reverse_events.insert(0, reverse_events.pop(index_entry))
-                index_entry = index_entry + 1
-            events = list(reversed(reverse_events))
-
-            events = sorted(events, key=lambda x: x['MAPPED-TO-TASK'])
-            # setting the PositionInTask parameter
-            tasks = []
-            for task in tasks_general:
-                count = 1
-                for elem in events:
-                    if elem['MAPPED-TO-TASK'] == task['NAME']:
-                        elem['POSITION-IN-TASK'] = count
-                        count = count + 1
-            for event in events:
-                if event['POSITION-IN-TASK'] is None:
-                    logger.error('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
-                    print('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
-                    error_no = error_no + 1
-            # setting the RteActivationOffset parameter
-            d = defaultdict(list)
-            for item in events:
-                d[item['MAPPED-TO-TASK']].append(item)
-            for task in d:
-                timing_events = []
-                # search and add only TIMING-EVENTS
-                for event in d[task]:
-                    if event['TYPE'] == 'TIMING-EVENT':
-                        if event['SPECIFIC-TASK'] is None and event['CATEGORY'] == 'DEFAULT':
-                            obj_event = {}
-                            obj_event['NAME'] = event['EVENT']
-                            obj_event['REF'] = event['REF']
-                            obj_event['DURATION'] = event['DURATION']
-                            obj_event['PERIOD'] = event['PERIOD']
-                            obj_event['AFTER'] = event['AFTER-EVENT']
-                            obj_event['BEFORE'] = event['BEFORE-EVENT']
-                            obj_event['COMPUTED'] = False
-                            obj_event['OFFSET'] = None
-                            timing_events.append(obj_event)
-                # compute max period of the timing events and transform it from s in ms
-                # compute min task peridicity to use in case of periodicity command line argument not defined
-                max_period = 0
-                task_periodicity = 1
-                task_offset = 0
-                for task_elem in tasks_general:
-                    if task_elem['NAME'] == task:
-                        if task_elem['PERIODICITY'] is not None:
-                            task_periodicity = task_elem['PERIODICITY'].replace(",", ".")
-                            task_periodicity = float(task_periodicity)
-                            task_periodicity = task_periodicity * 1000
-                        if task_elem['OFFSET'] is not None:
-                            task_offset = task_elem['OFFSET'].replace(",", ".")
-                            task_offset = float(task_offset)
-                            task_offset = task_offset * 1000
-                for elem in timing_events:
-                    if float(elem['PERIOD']) > max_period:
-                        max_period = float(elem['PERIOD'])
-                max_period = max_period * 1000
-                number_of_slots = max_period/task_periodicity
-                slots = [[] for i in range(int(number_of_slots))]
-                dprim = defaultdict(list)
-                for te in timing_events:
-                    dprim[te['PERIOD']].append(te)
-                dprim = sorted(dprim.items())
-                # for each period time, insert the event on the slot
-                for period in dprim:
-                    slot_frequency = int((float(period[0]) * 1000) / task_periodicity)
-                    event_list = move_to_front(period[1])
-                    for event in event_list:
-                        if event['COMPUTED'] is not True:
-                            pos = findMin(slots, slot_frequency)
-                            slots = insertElement(slots, pos, slot_frequency, event)
-                            event['COMPUTED'] = True
-                            if event['AFTER']:
-                                for event_constr in event['AFTER']:
-                                    for event_tbd in event_list:
-                                        if event_tbd['NAME'] == event_constr.split('/')[-1]:
-                                            slots = insertElement(slots, pos, slot_frequency, event_tbd)
-                                            event_tbd['COMPUTED'] = True
-                            if event['BEFORE']:
-                                for event_constr in event['BEFORE']:
-                                    for event_tbd in event_list:
-                                        if event_tbd['NAME'] == event_constr.split('/')[-1]:
-                                            slots = insertElement(slots, pos, slot_frequency, event_tbd)
-                                            event_tbd['COMPUTED'] = True
-                # dump data to debug file
-                debugger.info("=============Schedule" + task + "==========")
-                counter = 0
-                debugger.info("Tick;Tick duration;Event list")
-                for slot in slots:
-                    debugger.info(str(counter) + ";" + str(round(sum(float(event['DURATION']) for event in slot), 2)) + "(ms);" + ";".join([str(event['NAME']) for event in slot]))
-                    counter = counter + 1
-                debugger.info("")
-                # add the computed offset (first occurence in the slot table) to the main <event> list
-                for elem in events:
-                    iterator = -1
-                    if elem['TYPE'] == 'TIMING-EVENT':
-                        for slot in slots:
-                            iterator = iterator + 1
-                            event_slot = []
-                            for event in slot:
-                                event_slot.append(event['NAME'])
-                            if elem['EVENT'] in event_slot:
-                                elem['ACTIVATION-OFFSET'] = ((iterator * task_periodicity) + task_offset) / 1000
-                                break
-                ######
-            for elemEv in events:
-                for elemAlloc in swc_allocation:
-                    temp = elemAlloc['SWC'].split("/")
-                    if elemEv['ASWC'] == temp[-1]:
-                        elemEv['CORE'] = elemAlloc['CORE']
-                        elemEv['PARTITION'] = elemAlloc['PARTITION']
-            for elemEv in events:
-                for elemSw in compos:
-                    if elemEv['ASWC'] == elemSw['SWC']:
-                        elemEv['INSTANCE'] = elemSw['NAME']
-            swc_allocation = list(unique_items(swc_allocation))
-            for elemSw in compos:
-                for elemAlloc in swc_allocation:
-                    temp = elemAlloc['SWC'].split("/")
-                    if elemSw['SWC'] == temp[-1]:
-                        objElem = {}
-                        objElem['INSTANCE'] = elemSw['NAME']
-                        objElem['CORE'] = elemAlloc['CORE']
-                        objElem['PARTITION'] = elemAlloc['PARTITION']
-                        aswcs.append(objElem)
-        # # dump data to debug file
-        debugger.info("=============Event order ===========")
-        # for element in orderUnique:
-        #     debugger.info(element["BEFORE"] + " => " + element["AFTER"])
-        chains = []
-        for index1 in range(len(order)):
-            chain = []
-            chain.append(order[index1]['BEFORE'])
-            chain.append(order[index1]['AFTER'])
-            for index2 in range(len(order)):
-                if index2 != index1:
-                    if order[index1]["AFTER"] == order[index2]["BEFORE"] and order[index2]["VISITED"] is False:
-                        chain.append(order[index2]["AFTER"])
-            chains.append(chain)
-        debugger.info("")
-
-        # dump data to debug file
-        debugger.info("=============Event detail===========")
-        debugger.info("Event;Period;Offset;Duration;Task")
-        for event in events:
-            debugger.info(str(event['EVENT']) + ";" + str(event['PERIOD']) + ";" + str(event['ACTIVATION-OFFSET']) + ";" + str(event['DURATION']) + ";" + str(event['MAPPED-TO-TASK']))
-
-        #################################
-        if error_no != 0:
-            print("There is at least one blocking error! Check the generated log.")
-            print("\nRTE configuration script stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            be_event = root.findall(".//{http://autosar.org/schema/r4.0}BACKGROUND-EVENT")
+            for elem in be_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            dree_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-RECEIVE-ERROR-EVENT")
+            for elem in dree_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            dre_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-RECEIVED-EVENT")
+            for elem in dre_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            dsce_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-SEND-COMPLETED-EVENT")
+            for elem in dsce_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            dwce_event = root.findall(".//{http://autosar.org/schema/r4.0}DATA-WRITE-COMPLETED-EVENT")
+            for elem in dwce_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            etoe_event = root.findall(".//{http://autosar.org/schema/r4.0}EXTERNAL-TRIGGER-OCCURRED-EVENT")
+            for elem in etoe_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            ie_event = root.findall(".//{http://autosar.org/schema/r4.0}INIT-EVENT")
+            for elem in ie_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            itoe_event = root.findall(".//{http://autosar.org/schema/r4.0}INTERNAL-TRIGGER-OCCURRED-EVENT")
+            for elem in itoe_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            msae_event = root.findall(".//{http://autosar.org/schema/r4.0}MODE-SWITCHED-ACK-EVENT")
+            for elem in msae_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            oie_event = root.findall(".//{http://autosar.org/schema/r4.0}OPERATION-INVOKED-EVENT")
+            for elem in oie_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            smmee_event = root.findall(".//{http://autosar.org/schema/r4.0}SWC-MODE-MANAGER-ERROR-EVENT")
+            for elem in smmee_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            smse_event = root.findall(".//{http://autosar.org/schema/r4.0}SWC-MODE-SWITCH-EVENT")
+            for elem in smse_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "PER"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            te_event = root.findall(".//{http://autosar.org/schema/r4.0}TIMING-EVENT")
+            for elem in te_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "PER"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            thee_event = root.findall(".//{http://autosar.org/schema/r4.0}TRANSFORMER-HARD-ERROR-EVENT")
+            for elem in thee_event:
+                obj_event = {}
+                obj_event['NAME'] = elem.find('{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                obj_event['EVENT-TYPE'] = elem.tag.split('}')[-1]
+                obj_event['TYPE'] = "EVT"
+                obj_event['START-ON-EVENT'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['DURATION'] = event_duration
+                obj_event['BEFORE-EVENT'] = []
+                obj_event['AFTER-EVENT'] = []
+                obj_event['REF'] = elem.find('{http://autosar.org/schema/r4.0}START-ON-EVENT-REF').text
+                obj_event['EVENT-REF'] = ''
+                obj_event['CORE'] = ""
+                obj_event['PARTITION'] = ""
+                obj_event['CATEGORY'] = "DEFAULT"
+                obj_event['SPECIFIC-TASK'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}ACTIVATION') is not None:
+                    obj_event['ACTIVATION'] = elem.find('{http://autosar.org/schema/r4.0}ACTIVATION').text
+                else:
+                    obj_event['ACTIVATION'] = None
+                if elem.find('{http://autosar.org/schema/r4.0}PERIOD') is not None:
+                    obj_event['PERIOD'] = elem.find('{http://autosar.org/schema/r4.0}PERIOD').text
+                else:
+                    obj_event['PERIOD'] = None
+                obj_event['IB'] = elem.getparent().getparent().getchildren()[0].text
+                obj_event['ASWC'] = elem.getparent().getparent().getparent().getparent().getchildren()[0].text
+                obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                if elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].tag == '{http://autosar.org/schema/r4.0}SHORT-NAME':
+                    obj_event['ROOT'] = elem.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text + '/' + obj_event['ROOT']
+                events_aswc.append(obj_event)
+            sw_compos = root.findall(".//{http://autosar.org/schema/r4.0}SW-COMPONENT-PROTOTYPE")
+            for elemSW in sw_compos:
+                objSw = {}
+                objSw['NAME'] = str(elemSW.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text)
+                objSw['TYPE'] = elemSW.find("{http://autosar.org/schema/r4.0}TYPE-TREF").text
+                temp = objSw['TYPE'].split('/')
+                objSw['SWC'] = temp[-1]
+                compos.append(objSw)
+            behavior = root.findall(".//{http://autosar.org/schema/r4.0}SWC-INTERNAL-BEHAVIOR")
+            for ib in behavior:
+                objIB = {}
+                objIB['NAME'] = ib.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                objIB['ASWC'] = ib.getparent().getparent().getchildren()[0].text
+                objIB['ROOT'] = ib.getparent().getparent().getparent().getparent().getchildren()[0].text
+                ibehaviors.append(objIB)
+            implementation = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+            for elem in implementation:
+                objImp = {}
+                objImp['NAME'] = elem.find("{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                objImp['BEHAVIOR'] = elem.find("{http://autosar.org/schema/r4.0}BEHAVIOR-REF").text
+                objImp['ROOT'] = elem.getparent().getparent().getchildren()[0].text
+                implementations.append(objImp)
+        if file.endswith('.xml'):
             try:
-                os.remove(output_path + '/RTE_Config.xml')
-            except OSError:
-                pass
-            sys.exit(1)
-        else:
-            print("\nRTE configuration script finished with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+                check_if_xml_is_wellformed(file)
+                logger.info(' The file ' + file + ' is well-formed')
+                info_no = info_no + 1
+            except Exception as e:
+                logger.error(' The file ' + file + ' is not well-formed: ' + str(e))
+                print(' The file ' + file + ' is not well-formed: ' + str(e))
+                error_no = error_no + 1
+            parser = etree.XMLParser(remove_comments=True)
+            tree = objectify.parse(file, parser=parser)
+            root = tree.getroot()
+            event = root.findall(".//EVENT")
+            for element in event:
+                name = None
+                obj_event = {}
+                after_list = []
+                before_list = []
+                task = None
+                category = 'DEFAULT'
+                duration = None
+                for child in element.iterchildren():
+                    if child.tag == 'SHORT-NAME':
+                        name = child.text
+                    if child.tag == 'EVENT-REF':
+                        obj_event['EVENT'] = child.text
+                    if child.tag == 'DURATION':
+                        duration = child.text
+                    if child.tag == 'AFTER-EVENT-REF':
+                        list_of_events = child.findall('.//EVENT-REF')
+                        for elem in list_of_events:
+                            if not elem.text.isspace():
+                                after_list.append(elem.text)
+                    if child.tag == 'BEFORE-EVENT-REF':
+                        list_of_events = child.findall('.//EVENT-REF')
+                        for elem in list_of_events:
+                            if not elem.text.isspace():
+                                before_list.append(elem.text)
+                    if child.tag == 'SPECIFIC-TASK':
+                        task = child.text
+                    if child.tag == 'CATEGORY':
+                        category = child.text
+                obj_event['NAME'] = name
+                obj_event['DURATION'] = duration
+                obj_event['AFTER-EVENT'] = after_list
+                obj_event['BEFORE-EVENT'] = before_list
+                obj_event['SPECIFIC-TASK'] = task
+                obj_event['CATEGORY'] = category
+                events_rte.append(obj_event)
+            swc = root.findall(".//SWC-ALLOCATION")
+            for element in swc:
+                obj_event = {}
+                obj_event['SWC'] = element.find('SWC-REF').text
+                obj_event['CORE'] = element.find('CORE').text
+                obj_event['PARTITION'] = element.find('PARTITION').text
+                swc_allocation.append(obj_event)
+    try:
+        check_if_xml_is_wellformed(config)
+        logger.info(' The file ' + config + ' is well-formed')
+        info_no = info_no + 1
     except Exception as e:
-        print("Unexpected error: " + str(e))
-        print("\nRTE configuration script stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+        logger.error(' The file ' + config + ' is not well-formed: ' + str(e))
+        print(' The file ' + config + ' is not well-formed: ' + str(e))
+        error_no = error_no + 1
+    parser = etree.XMLParser(remove_comments=True)
+    tree = objectify.parse(config, parser=parser)
+    root = tree.getroot()
+    elem_task = root.findall(".//TASK")
+    for elem in elem_task:
+        obj_task = {}
+        obj_task['NAME'] = elem.find('NAME').text
+        obj_task['CATEGORY'] = elem.find('CATEGORY').text
+        if elem.find('PERIODICITY') is not None:
+            obj_task['PERIODICITY'] = elem.find('PERIODICITY').text
+        else:
+            obj_task['PERIODICITY'] = None
+        if elem.find('OFFSET') is not None:
+            obj_task['OFFSET'] = elem.find('OFFSET').text
+        else:
+            obj_task['OFFSET'] = None
+        obj_task['PARTITION'] = elem.getparent().getchildren()[0].text
+        obj_task['CORE'] = elem.getparent().getparent().getchildren()[0].text
+        tasks_general.append(obj_task)
+    ###################################
+    if error_no != 0:
+        print("There is at least one blocking error! Check the generated log.")
+        print("\nExecution stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
         try:
             os.remove(output_path + '/RTE_Config.xml')
         except OSError:
             pass
         sys.exit(1)
+
+    for implementation in implementations:
+        for behavior in ibehaviors:
+            if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME'] and implementation['BEHAVIOR'].split("/")[-2] == behavior['ASWC']:
+                objTemp = {}
+                objTemp['NAME'] = behavior['ASWC']
+                objTemp['SWC-REF'] = "/" + behavior['ROOT'] + "/" + behavior['ASWC']
+                objTemp['IMPLEMENTATION-REF'] = "/" + implementation['ROOT'] + "/" + implementation['NAME']
+                if objTemp not in swc_types:
+                    swc_types.append(objTemp)
+                else:
+                    continue
+
+    events_rte = merge_events(events_rte, logger, output_path)
+
+    for elem_rte in events_rte:
+        for elem_aswc in events_aswc:
+            if elem_rte['NAME'] == elem_aswc['NAME']:
+                elem_aswc['BEFORE-EVENT'] = elem_rte['BEFORE-EVENT']
+                elem_aswc['AFTER-EVENT'] = elem_rte['AFTER-EVENT']
+                elem_aswc['CATEGORY'] = elem_rte['CATEGORY']
+                elem_aswc['SPECIFIC-TASK'] = elem_rte['SPECIFIC-TASK']
+                elem_aswc['EVENT-REF'] = elem_rte['EVENT']
+                if elem_rte['DURATION'] is not None:
+                    elem_aswc['DURATION'] = elem_rte['DURATION']
+    for elem_swc in swc_allocation:
+        for elem_aswc in events_aswc:
+            if "/"+elem_aswc['ROOT'] + "/" + elem_aswc['ASWC'] in elem_swc['SWC']:
+                elem_aswc['CORE'] = elem_swc['CORE']
+                elem_aswc['PARTITION'] = elem_swc['PARTITION']
+
+    # remove OIE events that have the DEFAULT category
+    for event in events_aswc[:]:
+        if event['EVENT-TYPE'] == "OPERATION-INVOKED-EVENT":
+            if event['CATEGORY'] == "DEFAULT":
+                events_aswc.remove(event)
+
+    # compute max period of the timing events and transform it from s in ms
+    max_period = 0
+    for elem_aswc in events_aswc:
+        if elem_aswc['EVENT-TYPE'] == 'TIMING-EVENT' and float(elem_aswc['PERIOD']) > max_period:
+            max_period = float(elem_aswc['PERIOD'])
+    max_period = max_period * 1000
+
+    # TRS.RTECONFIG.FUNC.006
+    for elem in events_aswc:
+        if elem['ACTIVATION'] == "ON-ENTRY":
+            for elem2 in events_aswc:
+                if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2['TYPE'] and elem['ASWC'] == elem2['ASWC'] and elem2['ACTIVATION'] == "ON-EXIT":
+                    elem['AFTER-EVENT'].append(elem2['NAME'])
+
+    g = Graph(len(events_aswc))
+    order = []
+    for elem in events_aswc:
+        if elem['AFTER-EVENT']:
+            i = events_aswc.index(elem)
+            j = 0
+            temp = elem['AFTER-EVENT']
+            for t in temp:
+                for element in events_aswc:
+                    if element['NAME'] == t.split('/')[-1]:
+                        j = events_aswc.index(element)
+                        g.add_edge(j, i)
+                        dictOrder = {}
+                        dictOrder["BEFORE"] = element['NAME']
+                        dictOrder["AFTER"] = elem["NAME"]
+                        dictOrder["VISITED"] = False
+                        order.append(dictOrder)
+        if elem['BEFORE-EVENT']:
+            i = events_aswc.index(elem)
+            j = 0
+            temp = elem['BEFORE-EVENT']
+            for t in temp:
+                for element in events_aswc:
+                    if element['NAME'] == t.split('/')[-1]:
+                        j = events_aswc.index(element)
+                        g.add_edge(i, j)
+                        dictOrder = {}
+                        dictOrder["BEFORE"] = elem['NAME']
+                        dictOrder["AFTER"] = element["NAME"]
+                        dictOrder["VISITED"] = False
+                        order.append(dictOrder)
+    result = g.is_cyclic()
+    error_cycle = []
+    if result is not False:
+        for index in range(len(result)):
+            for elem in range(len(events_aswc)):
+                if result[index] == elem:
+                    error_cycle.append(events_aswc[elem]['NAME'])
+        text = ""
+        iter = -1
+        for elem in error_cycle:
+            iter = iter + 1
+            if iter == len(error_cycle) - 1:
+                text = text + elem
+            else:
+                text = text + elem + " => "
+        logger.error('There is a cycle in task sequencing: ' + text)
+        print('There is a cycle in task sequencing: ' + text)
+        error_no = error_no + 1
+    else:
+        sequence = g.topological_sort()
+        # setting the EventToTaskMapping parameter
+        for index in range(len(sequence)):
+            for elem in range(len(events_aswc)):
+                if sequence[index] == elem:
+                    obj_event = {}
+                    obj_event['EVENT'] = events_aswc[elem]['NAME']
+                    obj_event['TYPE'] = events_aswc[elem]['EVENT-TYPE']
+                    obj_event['EVENT-REF'] = events_aswc[elem]['EVENT-REF']
+                    obj_event['ACTIVATION-OFFSET'] = None
+                    obj_event['POSITION-IN-TASK'] = None
+                    try:
+                        if events_aswc[elem]['CORE'] == '':
+                            logger.error('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
+                            print('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
+                            error_no = error_no + 1
+                        elif events_aswc[elem]['PARTITION'] == '':
+                            logger.error('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
+                            print('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
+                            error_no = error_no + 1
+                        else:
+                            if events_aswc[elem]['SPECIFIC-TASK'] is not None:
+                                obj_event['MAPPED-TO-TASK'] = events_aswc[elem]['SPECIFIC-TASK']
+                            else:
+                                tasked = False
+                                for task in tasks_general:
+                                    if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                        obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                        tasked = True
+                                        break
+                                    elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                        obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                        tasked = True
+                                        break
+                                    elif events_aswc[elem]['CATEGORY'] == "DIAG" and task['CATEGORY'] == "DIAG" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                        obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                        tasked = True
+                                        break
+                                if not tasked:
+                                    logger.error('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
+                                    print('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
+                                    error_no = error_no + 1
+                    except Exception as e:
+                        logger.error('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
+                        print('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
+                        error_no = error_no + 1
+                    obj_event['REF'] = events_aswc[elem]['REF']
+                    obj_event['PERIOD'] = events_aswc[elem]['PERIOD']
+                    obj_event['DURATION'] = events_aswc[elem]['DURATION']
+                    obj_event['AFTER-EVENT'] = events_aswc[elem]['AFTER-EVENT']
+                    obj_event['BEFORE-EVENT'] = events_aswc[elem]['BEFORE-EVENT']
+                    obj_event['ACTIVATION'] = events_aswc[elem]['ACTIVATION']
+                    obj_event['IB'] = events_aswc[elem]['IB']
+                    obj_event['ASWC'] = events_aswc[elem]['ASWC']
+                    obj_event['ROOT'] = events_aswc[elem]['ROOT']
+                    obj_event['CATEGORY'] = events_aswc[elem]['CATEGORY']
+                    obj_event['SPECIFIC-TASK'] = events_aswc[elem]['SPECIFIC-TASK']
+                    obj_event['CORE'] = None
+                    obj_event['PARTITION'] = None
+                    obj_event['INSTANCE'] = None
+                    if obj_event not in events:
+                        events.append(obj_event)
+                    else:
+                        continue
+
+        index_exit = 0
+        index_entry = 0
+        for event in events:
+            if event['ACTIVATION'] == "ON-EXIT":
+                events.insert(0, events.pop(index_exit))
+            index_exit = index_exit + 1
+        reverse_events = list(reversed(events))
+        for event in reverse_events:
+            if event['ACTIVATION'] == "ON-ENTRY":
+                reverse_events.insert(0, reverse_events.pop(index_entry))
+            index_entry = index_entry + 1
+        events = list(reversed(reverse_events))
+
+        events = sorted(events, key=lambda x: x['MAPPED-TO-TASK'])
+        # setting the PositionInTask parameter
+        tasks = []
+        for task in tasks_general:
+            count = 1
+            for elem in events:
+                if elem['MAPPED-TO-TASK'] == task['NAME']:
+                    elem['POSITION-IN-TASK'] = count
+                    count = count + 1
+        for event in events:
+            if event['POSITION-IN-TASK'] is None:
+                logger.error('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
+                print('The event ' + event['EVENT'] + ' is mapped to a task not present in the OsConfig file: ' + str(event['SPECIFIC-TASK']))
+                error_no = error_no + 1
+        # setting the RteActivationOffset parameter
+        d = defaultdict(list)
+        for item in events:
+            if item['TYPE'] == 'TIMING-EVENT':
+                if item['SPECIFIC-TASK'] is None and item['CATEGORY'] == 'DEFAULT':
+                    obj_event = {}
+                    obj_event['NAME'] = item['EVENT']
+                    obj_event['REF'] = item['REF']
+                    if float(item['DURATION']) == 0:
+                        obj_event['DURATION'] = '0.0001'
+                    else:
+                        obj_event['DURATION'] = item['DURATION']
+                    obj_event['PERIOD'] = item['PERIOD']
+                    obj_event['AFTER'] = item['AFTER-EVENT']
+                    obj_event['BEFORE'] = item['BEFORE-EVENT']
+                    obj_event['COMPUTED'] = False
+                    obj_event['OFFSET'] = None
+                    d[item['MAPPED-TO-TASK']].append(obj_event)
+        for task in d:
+            # compute max period of the timing events and transform it from s in ms
+            # compute min task peridicity to use in case of periodicity command line argument not defined
+            max_period = 0
+            task_periodicity = 1
+            task_offset = 0
+            for task_elem in tasks_general:
+                if task_elem['NAME'] == task:
+                    if task_elem['PERIODICITY'] is not None:
+                        task_periodicity = task_elem['PERIODICITY'].replace(",", ".")
+                        task_periodicity = float(task_periodicity)
+                        task_periodicity = task_periodicity * 1000
+                    if task_elem['OFFSET'] is not None:
+                        task_offset = task_elem['OFFSET'].replace(",", ".")
+                        task_offset = float(task_offset)
+                        task_offset = task_offset * 1000
+                    break
+            medium_value = 0
+            nb_of_events = 0
+            for elem in d[task]:
+                medium_value = medium_value + float(elem['DURATION'])
+                nb_of_events = nb_of_events + 1
+            if nb_of_events == 0:
+                continue
+            medium_value = (medium_value/nb_of_events) * 2
+            for elem in d[task]:
+                if float(elem['PERIOD']) > max_period:
+                    max_period = float(elem['PERIOD'])
+            max_period = max_period * 1000
+            number_of_slots = max_period/task_periodicity
+            slots = [[] for i in range(int(number_of_slots))]
+            dprim_big = defaultdict(list)
+            dprim_small = defaultdict(list)
+            for te in d[task]:
+                if float(te['DURATION']) >= medium_value:
+                    dprim_big[te['PERIOD']].append(te)
+                else:
+                    dprim_small[te['PERIOD']].append(te)
+            dprim_big = sorted(dprim_big.items())
+            slot_limit = 0
+            # for each period time, insert the event on the slot
+            for period in dprim_big:
+                slot_frequency = int((float(period[0]) * 1000) / task_periodicity)
+                chain_duration = sum(float(event['DURATION']) for event in period[1])
+                chain_limit = chain_duration / slot_frequency
+                slot_limit = slot_limit + chain_limit
+                for event in period[1]:
+                    if event['COMPUTED'] is not True:
+                        pos = findSlot(slots, slot_frequency, slot_limit)
+                        slots = insertElement(slots, pos, slot_frequency, event)
+                        event['COMPUTED'] = True
+            dprim_small = sorted(dprim_small.items())
+            # for each period time, insert the event on the slot
+            for period in dprim_small:
+                slot_frequency = int((float(period[0]) * 1000) / task_periodicity)
+                chain_duration = sum(float(event['DURATION']) for event in period[1])
+                chain_limit = chain_duration / slot_frequency
+                slot_limit = slot_limit + chain_limit
+                for event in period[1]:
+                    if event['COMPUTED'] is not True:
+                        pos = findSlot(slots, slot_frequency, slot_limit)
+                        slots = insertElement(slots, pos, slot_frequency, event)
+                        event['COMPUTED'] = True
+            # dump data to debug file
+            debugger.info("=============Schedule" + task + "==========")
+            counter = 0
+            debugger.info("Tick;Tick duration;Event list")
+            for slot in slots:
+                debugger.info(str(counter) + ";" + str(round(sum(float(event['DURATION']) for event in slot), 2)) + "(ms);" + ";".join([str(event['NAME']) for event in slot]))
+                counter = counter + 1
+            debugger.info("")
+            # add the computed offset (first occurence in the slot table) to the main <event> list
+            for elem in events:
+                iterator = -1
+                if elem['TYPE'] == 'TIMING-EVENT':
+                    for slot in slots:
+                        iterator = iterator + 1
+                        event_slot = []
+                        for event in slot:
+                            event_slot.append(event['NAME'])
+                        if elem['EVENT'] in event_slot:
+                            elem['ACTIVATION-OFFSET'] = ((iterator * task_periodicity) + task_offset) / 1000
+                            break
+            ######
+        for elemEv in events:
+            for elemAlloc in swc_allocation:
+                temp = elemAlloc['SWC'].split("/")
+                if elemEv['ASWC'] == temp[-1]:
+                    elemEv['CORE'] = elemAlloc['CORE']
+                    elemEv['PARTITION'] = elemAlloc['PARTITION']
+        for elemEv in events:
+            for elemSw in compos:
+                if elemEv['ASWC'] == elemSw['SWC']:
+                    elemEv['INSTANCE'] = elemSw['NAME']
+        swc_allocation = list(unique_items(swc_allocation))
+        for elemSw in compos:
+            for elemAlloc in swc_allocation:
+                temp = elemAlloc['SWC'].split("/")
+                if elemSw['SWC'] == temp[-1]:
+                    objElem = {}
+                    objElem['INSTANCE'] = elemSw['NAME']
+                    objElem['CORE'] = elemAlloc['CORE']
+                    objElem['PARTITION'] = elemAlloc['PARTITION']
+                    if objElem not in aswcs:
+                        aswcs.append(objElem)
+                    else:
+                        continue
+    # # dump data to debug file
+    debugger.info("=============Event order ===========")
+    # for element in orderUnique:
+    #     debugger.info(element["BEFORE"] + " => " + element["AFTER"])
+    chains = []
+    for index1 in range(len(order)):
+        chain = []
+        chain.append(order[index1]['BEFORE'])
+        chain.append(order[index1]['AFTER'])
+        for index2 in range(len(order)):
+            if index2 != index1:
+                if order[index1]["AFTER"] == order[index2]["BEFORE"] and order[index2]["VISITED"] is False:
+                    chain.append(order[index2]["AFTER"])
+        chains.append(chain)
+    debugger.info("")
+
+    # dump data to debug file
+    debugger.info("=============Event detail===========")
+    debugger.info("Event;Period;Offset;Duration;Task")
+    for event in events:
+        debugger.info(str(event['EVENT']) + ";" + str(event['PERIOD']) + ";" + str(event['ACTIVATION-OFFSET']) + ";" + str(event['DURATION']) + ";" + str(event['MAPPED-TO-TASK']))
+    #################################
+    if error_no != 0:
+        print("There is at least one blocking error! Check the generated log.")
+        print("\nRTE configuration file generation stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+        try:
+            os.remove(output_path + '/RTE_Config.xml')
+        except OSError:
+            pass
+        sys.exit(1)
+    else:
+        print("\nRTE configuration file generation finished with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+    # except Exception as e:
+    #     print("Unexpected error: " + str(e))
+    #     print("\nRTE configuration file generation stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
+    #     try:
+    #         os.remove(output_path + '/RTE_Config.xml')
+    #     except OSError:
+    #         pass
+    #     sys.exit(1)
 
 
 def create_script(events, aswcs, output_path):
