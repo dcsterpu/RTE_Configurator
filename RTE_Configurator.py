@@ -230,9 +230,7 @@ def findMin(slot_list, frequency):
     min_duration = 1000
     smallest_slot = 0
     for slot in firstNSlots:
-        slot_duration = 0
-        for event in slot:
-            slot_duration += float(event['DURATION'])
+        slot_duration = sum(float(event['DURATION']) for event in slot)
         if slot_duration < min_duration:
             min_duration = slot_duration
             smallest_slot = firstNSlots.index(slot)
@@ -240,12 +238,21 @@ def findMin(slot_list, frequency):
 
 def findSlot(slot_list, frequency, limit):
     firstNSlots = slot_list[:frequency]
+    min_duration = 1000
+    smallest_slot = 0
+    slot_not_found = True
     for slot in firstNSlots:
-        slot_duration = 0
-        for event in slot:
-            slot_duration += float(event['DURATION'])
+        slot_duration = sum(float(event['DURATION']) for event in slot)
         if slot_duration < limit:
-            return firstNSlots.index(slot)
+            smallest_slot = firstNSlots.index(slot)
+            slot_not_found = False
+        else:
+            slot_not_found = True
+        if slot_not_found:
+            if slot_duration < min_duration:
+                min_duration = slot_duration
+                smallest_slot = firstNSlots.index(slot)
+    return smallest_slot
 
 
 
@@ -1208,6 +1215,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                 slot_limit = slot_limit + chain_limit
                 for event in period[1]:
                     if event['COMPUTED'] is not True:
+                        # pos = findMin(slots, slot_frequency)
                         pos = findSlot(slots, slot_frequency, slot_limit)
                         slots = insertElement(slots, pos, slot_frequency, event)
                         event['COMPUTED'] = True
@@ -1220,7 +1228,8 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                 slot_limit = slot_limit + chain_limit
                 for event in period[1]:
                     if event['COMPUTED'] is not True:
-                        pos = findSlot(slots, slot_frequency, slot_limit)
+                        pos = findMin(slots, slot_frequency)
+                        # pos = findSlot(slots, slot_frequency, slot_limit)
                         slots = insertElement(slots, pos, slot_frequency, event)
                         event['COMPUTED'] = True
             # dump data to debug file
