@@ -26,35 +26,5 @@
                 </Operation>
             </Operations>
         </Operation>
-        <Operation Type="ForEach">
-            <Expression>as:modconf('Rte')[1]/RteSwComponentInstance/*/RteEventToTaskMapping/*/RteEventRef[.="ASPath:/RootP_ASWC_A27/ASWC_A27/IB_ASWC_A27/RUNA_GererCptTempVhl_Cyclic"]/../RtePositionInTask</Expression>
-            <Operations>
-                <Operation Type="SetEnabled">
-                    <Expression>boolean(1)</Expression>
-                </Operation>
-                <Operation Type="SetValue">
-                    <Expression>num:i(1)</Expression>
-                </Operation>
-            </Operations>
-        </Operation>
-        <Operation Type="ForEach">
-            <Expression>as:modconf('Rte')[1]/RteSwComponentInstance/*/RteEventToTaskMapping/*/RteEventRef[.="ASPath:/RootP_ASWC_A27/ASWC_A27/IB_ASWC_A27/RUNA_GererCptTempVhl_Cyclic"]/../RteMappedToTaskRef</Expression>
-            <Operations>
-                <Operation Type="SetEnabled">
-                    <Expression>boolean(1)</Expression>
-                </Operation>
-                <Operation Type="SetValue">
-                    <Expression>"ASPath:/Os/Os/TaskApp_APP_1_A_PER"</Expression>
-                </Operation>
-            </Operations>
-        </Operation>
-        <Operation Type="ForEach">
-            <Expression>as:modconf('Rte')[1]/RteSwComponentInstance/*/RteEventToTaskMapping/*/RteEventRef[.="ASPath:/RootP_ASWC_A27/ASWC_A27/IB_ASWC_A27/RUNA_GererCptTempVhl_Cyclic"]/../RteActivationOffset</Expression>
-            <Operations>
-                <Operation Type="SetEnabled">
-                    <Expression>boolean(0)</Expression>
-                </Operation>
-            </Operations>
-        </Operation>
     </Operations>
 </Script>

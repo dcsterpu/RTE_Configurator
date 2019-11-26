@@ -88,8 +88,18 @@ def main():
     parser = argparse.ArgumentParser()
     arg_parse(parser)
     args = parser.parse_args()
-    input_path = args.inp
+    input_cfg_path = args.inp
+    aswc_path = args.aswc
+    acme_path = args.acme
+    rte_path =  args.rte
+    input_path=[]
+    input_path.append(aswc_path)
+    input_path.append(acme_path)
+    input_path.append(rte_path)
     composition_name = ""
+    disable = False
+    if args.dec:
+        disable = True
     if args.compo:
         composition_name = args.compo
     mem_map = False
@@ -99,17 +109,113 @@ def main():
         if composition_name == "":
             print("Composition name must be set if MemMap parameter is present")
             sys.exit(1)
+    rte = False
+    if args.Rte:
+        rte = True
+    if rte:
+        if composition_name == "":
+            print("Composition name must be set if Rte parameter is present")
+            sys.exit(1)
     if args.default_duration == '':
-        default_duration = None
+        default_duration = '0'
     else:
         default_duration = int(args.default_duration)
     error = False
+
+    if mem_map == False and (aswc_path != '' and acme_path != '' and rte_path != ''):
+        print("\nError MemMap parameter is not present but input path is!\n")
+        error = True
+        sys.exit(1)
+
+    # if rte == False and input_cfg_path != '':
+    #     print("\nError Rte parameter is  not present but input path is!\n")
+    #     error = True
+    #     sys.exit(1)
+
     path_list = []
     file_list = []
     entry_list = []
     config_path = args.osconfig
     config_path = config_path.replace("\\", "/")
-    for path in input_path:
+    if mem_map:
+        type=1
+        for elem in input_path:
+            for path in elem:
+                if path.startswith('@'):
+                    file = open(path[1:])
+                    line_file = file.readline()
+                    while line_file != "":
+                        line_file = line_file.rstrip()
+                        line_file = line_file.lstrip()
+                        if "#" not in line_file:
+                            if os.path.isdir(line_file):
+                                obj = {}
+                                obj['FILE'] = line_file
+                                if type == 1:
+                                    obj['TYPE'] = 'aswc'
+                                if type == 2:
+                                    obj['TYPE'] = 'acme'
+                                if type == 3:
+                                    obj['TYPE'] = 'rte'
+                                path_list.append(obj)
+                            elif os.path.isfile(line_file):
+                                obj = {}
+                                obj['FILE'] = line_file
+                                if type == 1:
+                                    obj['TYPE'] = 'aswc'
+                                if type == 2:
+                                    obj['TYPE'] = 'acme'
+                                if type == 3:
+                                    obj['TYPE'] = 'rte'
+                                file_list.append(obj)
+                            else:
+                                print("\nError defining the input path: " + line_file + "\n")
+                                error = True
+                            line_file = file.readline()
+                        else:
+                            line_file = file.readline()
+                    file.close()
+                else:
+                    if os.path.isdir(path):
+                        obj = {}
+                        obj['FILE'] = path
+                        if type == 1:
+                            obj['TYPE'] = 'aswc'
+                        if type == 2:
+                            obj['TYPE'] = 'acme'
+                        if type == 3:
+                            obj['TYPE'] = 'rte'
+                        path_list.append(obj)
+                    elif os.path.isfile(path):
+                        obj = {}
+                        obj['FILE'] = path
+                        if type == 1:
+                            obj['TYPE'] = 'aswc'
+                        if type == 2:
+                            obj['TYPE'] = 'acme'
+                        if type == 3:
+                            obj['TYPE'] = 'rte'
+                        file_list.append(obj)
+                    else:
+                        print("\nError defining the input path: " + path + "\n")
+                        error = True
+            type = type + 1
+        for path in path_list:
+            for (dirpath, dirnames, filenames) in os.walk(path['FILE']):
+                for file in filenames:
+                    fullname = dirpath + '\\' + file
+                    obj = {}
+                    obj['FILE'] = fullname
+                    obj['TYPE'] = path['TYPE']
+                    file_list.append(obj)
+
+        [entry_list.append(elem) for elem in file_list if elem['FILE'] not in entry_list]
+
+    path_cfg_list = []
+    file_cfg_list = []
+    entry_cfg_list = []
+    #if rte:
+    for path in input_cfg_path:
         if path.startswith('@'):
             file = open(path[1:])
             line_file = file.readline()
@@ -118,9 +224,9 @@ def main():
                 line_file = line_file.lstrip()
                 if "#" not in line_file:
                     if os.path.isdir(line_file):
-                        path_list.append(line_file)
+                        path_cfg_list.append(line_file)
                     elif os.path.isfile(line_file):
-                        file_list.append(line_file)
+                        file_cfg_list.append(line_file)
                     else:
                         print("\nError defining the input path: " + line_file + "\n")
                         error = True
@@ -130,24 +236,29 @@ def main():
             file.close()
         else:
             if os.path.isdir(path):
-                path_list.append(path)
+                path_cfg_list.append(path)
             elif os.path.isfile(path):
-                file_list.append(path)
+                file_cfg_list.append(path)
             else:
                 print("\nError defining the input path: " + path + "\n")
                 error = True
-    for path in path_list:
+    for path in path_cfg_list:
         for (dirpath, dirnames, filenames) in os.walk(path):
             for file in filenames:
                 fullname = dirpath + '\\' + file
-                file_list.append(fullname)
-    [entry_list.append(elem) for elem in file_list if elem not in entry_list]
+                file_cfg_list.append(fullname)
+    [entry_cfg_list.append(elem) for elem in file_cfg_list if elem not in entry_cfg_list]
+
+    total_list=[]
+    total_list = entry_list + entry_cfg_list
+
     if error:
         sys.exit(1)
-    output_path = args.out
-    output_script = args.out_script
+    output_path = args.out_epc
+    #output_script = args.out_script
     output_epc = args.out_epc
     output_log = args.out_log
+    swc_allocation=[]
     if output_path:
         if not os.path.isdir(output_path):
             print("\nError defining the output path!\n")
@@ -158,35 +269,39 @@ def main():
                 sys.exit(1)
             logger = set_logger(output_log)
             debugger = set_debugger(output_log)
+            swc_allocation,events,aswcs,swc_types = create_list(entry_list, entry_cfg_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
             if mem_map:
-                create_mapping(entry_list, composition_name, output_path, logger)
-            create_list(entry_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
+                #create_mapping(entry_list, composition_name, output_path, logger, swc_allocation)
+                create_mapping(entry_list,entry_cfg_list, composition_name, output_path, logger, swc_allocation)
             #create_script(events, aswcs, output_path)
-            create_configuration(events, aswcs, swc_types, output_path)
+            if rte:
+                create_configuration(events, aswcs, swc_types, output_path)
         else:
             logger = set_logger(output_path)
             debugger = set_debugger(output_path)
+            swc_allocation,events,aswcs,swc_types = create_list(entry_list, entry_cfg_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
             if mem_map:
-                create_mapping(entry_list, composition_name, output_path, logger)
-            create_list(entry_list, config_path, events, aswcs, swc_types, output_path, default_duration, logger, debugger)
+                #create_mapping(entry_list, composition_name, output_path, logger, swc_allocation)
+                create_mapping(entry_list,entry_cfg_list, composition_name, output_path, logger, swc_allocation)
             #create_script(events, aswcs, output_path)
-            create_configuration(events, aswcs, swc_types, output_path)
+            if rte:
+                create_configuration(events, aswcs, swc_types, output_path)
     elif not output_path:
-        if output_script:
-            if not os.path.isdir(output_script):
-                print("\nError defining the output configuration path!\n")
-                sys.exit(1)
-            if output_log:
-                if not os.path.isdir(output_log):
-                    print("\nError defining the output log path!\n")
-                    sys.exit(1)
-                logger = set_logger(output_log)
-                if mem_map:
-                    create_mapping(entry_list, composition_name, output_script, logger)
-            else:
-                logger = set_logger(output_script)
-                if mem_map:
-                    create_mapping(entry_list, composition_name, output_script, logger)
+        # if output_script:
+        #     if not os.path.isdir(output_script):
+        #         print("\nError defining the output configuration path!\n")
+        #         sys.exit(1)
+        #     if output_log:
+        #         if not os.path.isdir(output_log):
+        #             print("\nError defining the output log path!\n")
+        #             sys.exit(1)
+        #         logger = set_logger(output_log)
+        #         if mem_map:
+        #             create_mapping(entry_list, composition_name, output_script, logger)
+        #     else:
+        #         logger = set_logger(output_script)
+        #         if mem_map:
+        #             create_mapping(entry_list, composition_name, output_script, logger)
         if output_epc:
             if not os.path.isdir(output_epc):
                 print("\nError defining the output configuration path!\n")
@@ -197,13 +312,21 @@ def main():
                     sys.exit(1)
                 logger = set_logger(output_log)
                 debugger = set_debugger(output_log)
-                create_list(entry_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
-                create_configuration(events, aswcs, swc_types, output_epc)
+                swc_allocation,events,aswcs,swc_types = create_list(entry_list, entry_cfg_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
+                if rte:
+                    create_configuration(events, aswcs, swc_types, output_epc)
+                if mem_map:
+                    #create_mapping(entry_list, composition_name, output_epc, logger, swc_allocation)
+                    create_mapping(entry_list,entry_cfg_list, composition_name, output_path, logger, swc_allocation)
             else:
                 logger = set_logger(output_epc)
                 debugger = set_debugger(output_epc)
-                create_list(entry_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
-                create_configuration(events, aswcs, swc_types, output_epc)
+                swc_allocation,events,aswcs,swc_types = create_list(entry_list, entry_cfg_list, config_path, events, aswcs, swc_types, output_epc, default_duration, logger, debugger)
+                if rte:
+                    create_configuration(events, aswcs, swc_types, output_epc)
+                if mem_map:
+                    #create_mapping(entry_list, composition_name, output_epc, logger, swc_allocation)
+                    create_mapping(entry_list,entry_cfg_list, composition_name, output_path, logger, swc_allocation)
     else:
         print("\nNo output path defined!\n")
         sys.exit(1)
@@ -298,7 +421,7 @@ def merge_events(event_list, logger, output_path):
                     if event_list[index1]['EVENT'] == event_list[index2]['EVENT']:
                         index_of_events = events.index(event_list[index2])
                         # print(event_list[index1]['NAME'])
-                        if events[index_of_events]['DURATION'] is None:
+                        if events[index_of_events]['DURATION'] == '0':
                             events[index_of_events]['DURATION'] = event_list[index1]['DURATION']
                         if events[index_of_events]['SPECIFIC-TASK'] is None:
                             events[index_of_events]['SPECIFIC-TASK'] = event_list[index1]['SPECIFIC-TASK']
@@ -306,7 +429,7 @@ def merge_events(event_list, logger, output_path):
                             if event_list[index2]['SPECIFIC-TASK'] != event_list[index1]['SPECIFIC-TASK']:
                                 logger.error('The event with the name ' + event_list[index2]['NAME'] + ' and reference ' + event_list[index2]['EVENT'] + ' has multiple SPECIFIC-TASK allocated')
                                 print('The event with the name ' + event_list[index2]['NAME'] + ' and reference ' + event_list[index2]['EVENT'] + ' has multiple SPECIFIC-TASK allocated')
-                                os.remove(output_path + '/RTE_Config.xml')
+                                #os.remove(output_path + '/RTE_Config.xml')
                                 sys.exit(1)
                         if not events[index_of_events]['AFTER-EVENT']:
                             events[index_of_events]['AFTER-EVENT'] = event_list[index1]['AFTER-EVENT']
@@ -330,16 +453,20 @@ def merge_events(event_list, logger, output_path):
 
 
 def arg_parse(parser):
-    parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=True, default="")
+    parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=False, default="")
     parser.add_argument('-osconfig', '--osconfig', help="Os configuration script", required=True, default="")
-    parser.add_argument('-out', '--out', help="Output path", required=False, default="")
+    #parser.add_argument('-out', '--out', help="Output path", required=False, default="")
     parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False, default="")
-    parser.add_argument('-out_script', '--out_script', help="output path for memory mapping script file", required=False, default="")
+    #parser.add_argument('-out_script', '--out_script', help="output path for memory mapping script file", required=False, default="")
     parser.add_argument('-out_epc', '--out_epc', help="output path for RTE configuration file", required=False, default="")
     parser.add_argument('-out_log', '--out_log', help="output path for log file", required=False, default="")
     parser.add_argument('-MemMap', action="store_const", const="-MemMap", required=False, default="")
     parser.add_argument('-compo', '--compo', help="composition name", required=False, default="")
-
+    parser.add_argument('-Rte', action="store_const", const="-Rte", required=False, default="")
+    parser.add_argument('-in_aswc', '--aswc', nargs='*', help="Input aswc path or file", required=False, default="")
+    parser.add_argument('-in_acme', '--acme', nargs='*', help="Input acme path or file", required=False, default="")
+    parser.add_argument('-in_rte', '--rte', nargs='*', help="Input rte path or file", required=False, default="")
+    parser.add_argument('-disable_error_check', '--dec', help="disables error check", required=False, default="")
 
 def set_logger(path):
     # logger creation and setting
@@ -362,7 +489,7 @@ def set_debugger(path):
     return debugger
 
 
-def create_list(files_list, config, events, aswcs, swc_types, output_path, default_duration, logger, debugger):
+def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, output_path, default_duration, logger, debugger):
     events_rte = []
     events_aswc = []
     swc_allocation = []
@@ -373,24 +500,26 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
     warning_no = 0
     info_no = 0
     tasks_general = []
+    file_list_complete=[]
+    file_list_complete = file_arxml_list + files_list
     if default_duration is None:
         event_duration = 0.001
     else:
         event_duration = default_duration
     #try:
     # parse input files
-    for file in files_list:
-        if file.endswith('.arxml'):
+    for file in file_arxml_list: 
+        if file['FILE'].endswith('.arxml'):
             try:
-                check_if_xml_is_wellformed(file)
-                logger.info(' The file ' + file + ' is well-formed')
+                check_if_xml_is_wellformed(file['FILE'])
+                logger.info(' The file ' + file['FILE'] + ' is well-formed')
                 info_no = info_no + 1
             except Exception as e:
-                logger.error(' The file ' + file + ' is not well-formed: ' + str(e))
-                print(' The file ' + file + ' is not well-formed: ' + str(e))
+                logger.error(' The file ' + file['FILE'] + ' is not well-formed: ' + str(e))
+                print(' The file ' + file['FILE'] + ' is not well-formed: ' + str(e))
                 error_no = error_no + 1
             parser = etree.XMLParser(remove_comments=True)
-            tree = objectify.parse(file, parser=parser)
+            tree = objectify.parse(file['FILE'], parser=parser)
             root = tree.getroot()
             ascre_event = root.findall(".//{http://autosar.org/schema/r4.0}ASYNCHRONOUS-SERVER-CALL-RETURNS-EVENT")
             for elem in ascre_event:
@@ -864,6 +993,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                 objImp['BEHAVIOR'] = elem.find("{http://autosar.org/schema/r4.0}BEHAVIOR-REF").text
                 objImp['ROOT'] = elem.getparent().getparent().getchildren()[0].text
                 implementations.append(objImp)
+    for file in files_list:
         if file.endswith('.xml'):
             try:
                 check_if_xml_is_wellformed(file)
@@ -884,7 +1014,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                 before_list = []
                 task = None
                 category = 'DEFAULT'
-                duration = None
+                duration = '0'
                 for child in element.iterchildren():
                     if child.tag == 'SHORT-NAME':
                         name = child.text
@@ -957,6 +1087,32 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
             pass
         sys.exit(1)
 
+    # for elem in swc_allocation[:]:
+    #     for elem2 in swc_allocation[:]:
+    #         if swc_allocation.index(elem) != swc_allocation.index(elem2):
+    #             if elem['SWC'] == elem2['SWC']:
+    #                 if elem['CORE'] != elem2['CORE'] or elem['PARTITION'] != elem2['PARTITION']:
+    #                     logger.error('The SWC ' + elem2['SWC'] + 'has multiple different allocations')
+    #                     print('The SWC ' + elem2['SWC'] + 'has multiple different allocations')
+    #                     os.remove(output_path + '/MemMap.epc')
+    #                 else :
+    #                     if elem['CORE'] == elem2['CORE'] or elem['PARTITION'] == elem2['PARTITION']:
+    #                         swc_allocation.remove(elem2)
+
+    copy_swc = swc_allocation[:]
+    for index1 in range(len(copy_swc)):
+        for index2 in range(len(copy_swc)):
+            if index1 != index2 and index1 < index2:
+                if copy_swc[index1]['SWC'] == copy_swc[index2]['SWC']:
+                    if copy_swc[index1]['CORE'] != copy_swc[index2]['CORE'] or copy_swc[index1]['PARTITION'] != copy_swc[index2]['PARTITION']:
+                        logger.error('The SWC ' + copy_swc[index1]['SWC'] + 'has multiple different allocations')
+                        print('The SWC ' + copy_swc[index1]['SWC'] + 'has multiple different allocations')
+                        os.remove(output_path + '/MemMap.epc')
+                    else:
+                        if copy_swc[index1]['CORE'] == copy_swc[index2]['CORE'] or copy_swc[index1]['PARTITION'] == copy_swc[index2]['PARTITION']:
+                            swc_allocation.remove(copy_swc[index2])
+
+
     for implementation in implementations:
         for behavior in ibehaviors:
             if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME'] and implementation['BEHAVIOR'].split("/")[-2] == behavior['ASWC']:
@@ -979,7 +1135,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                 elem_aswc['CATEGORY'] = elem_rte['CATEGORY']
                 elem_aswc['SPECIFIC-TASK'] = elem_rte['SPECIFIC-TASK']
                 elem_aswc['EVENT-REF'] = elem_rte['EVENT']
-                if elem_rte['DURATION'] is not None:
+                if elem_rte['DURATION'] != '0':
                     elem_aswc['DURATION'] = elem_rte['DURATION']
     for elem_swc in swc_allocation:
         for elem_aswc in events_aswc:
@@ -1068,12 +1224,13 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                     obj_event['EVENT-REF'] = events_aswc[elem]['EVENT-REF']
                     obj_event['ACTIVATION-OFFSET'] = None
                     obj_event['POSITION-IN-TASK'] = None
+                    obj_event['MAPPED-TO-TASK'] = ""
                     try:
-                        if events_aswc[elem]['CORE'] == '':
+                        if events_aswc[elem]['CORE'] == '' or events_aswc[elem]['CORE'] is None:
                             logger.error('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
                             print('CORE not set for SWC-REF:' + events_aswc[elem]['ASWC'])
                             error_no = error_no + 1
-                        elif events_aswc[elem]['PARTITION'] == '':
+                        elif events_aswc[elem]['PARTITION'] == '' or events_aswc[elem]['PARTITION'] is None:
                             logger.error('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
                             print('PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'])
                             error_no = error_no + 1
@@ -1119,6 +1276,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
                     obj_event['INSTANCE'] = None
                     if obj_event not in events:
                         events.append(obj_event)
+                        break
                     else:
                         continue
 
@@ -1316,6 +1474,7 @@ def create_list(files_list, config, events, aswcs, swc_types, output_path, defau
     #     except OSError:
     #         pass
     #     sys.exit(1)
+    return swc_allocation,events,aswcs,swc_types
 
 
 def create_script(events, aswcs, output_path):
@@ -1487,11 +1646,11 @@ def create_configuration(events, aswcs, swc_types, output_path):
     # generate data
     pretty_xml = prettify_xml(rootRte)
     output = etree.ElementTree(etree.fromstring(pretty_xml))
-    output.write(output_path + '/Rte.epc', encoding='UTF-8', xml_declaration=True, method="xml")
+    output.write(output_path + '/Rte.epc', encoding='UTF-8', xml_declaration=True, method="xml", doctype="<!-- XML file generated by RTE_Configurator v1.0.1 -->")
     return
 
 
-def create_mapping(files_list, composition, output_path, logger):
+def create_mapping(files_list,files_cfg_list, composition, output_path, logger,swc_allocation):
     NSMAP = {None: 'http://autosar.org/schema/r4.0',
              "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
     attr_qname = etree.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
@@ -1501,21 +1660,22 @@ def create_mapping(files_list, composition, output_path, logger):
     compositions = []
     behaviors = []
     memory_mappings = []
-    swc_allocation = []
+    #swc_allocation = []
     data_elements = []
+    components_type=[]
     try:
         for file in files_list:
-            if file.endswith('.arxml'):
+            if file['FILE'].endswith('.arxml'):
                 try:
-                    check_if_xml_is_wellformed(file)
-                    logger.info('The file: ' + file + ' is well-formed')
+                    check_if_xml_is_wellformed(file['FILE'])
+                    logger.info('The file: ' + file['FILE'] + ' is well-formed')
                     info_no = info_no + 1
                 except Exception as e:
-                    logger.error('The file: ' + file + ' is not well-formed: ' + str(e))
-                    print('The file: ' + file + ' is not well-formed: ' + str(e))
+                    logger.error('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
+                    print('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
                     error_no = error_no + 1
                 parser = etree.XMLParser(remove_comments=True)
-                tree = objectify.parse(file, parser=parser)
+                tree = objectify.parse(file['FILE'], parser=parser)
                 root = tree.getroot()
                 sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
                 for section in sections:
@@ -1535,15 +1695,16 @@ def create_mapping(files_list, composition, output_path, logger):
                     else:
                         obj_section['METHOD'] = None
                     memory_mappings.append(obj_section)
-                components = root.findall(".//{http://autosar.org/schema/r4.0}SW-COMPONENT-PROTOTYPE")
-                for component in components:
-                    obj_component = {}
-                    obj_component['INSTANCE'] = component.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
-                    obj_component['SWC'] = component.find(".//{http://autosar.org/schema/r4.0}TYPE-TREF").text
-                    obj_component['COMPONENT'] = component.getparent().getparent().getchildren()[0].text
-                    obj_component['ROOT'] = component.getparent().getparent().getparent().getparent().getchildren()[0].text
-                    obj_component['DELETE'] = False
-                    compositions.append(obj_component)
+                # components = root.findall(".//{http://autosar.org/schema/r4.0}SW-COMPONENT-PROTOTYPE")
+                # for component in components:
+                #     obj_component = {}
+                #     obj_component['INSTANCE'] = component.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                #     obj_component['SWC'] = component.find(".//{http://autosar.org/schema/r4.0}TYPE-TREF").text
+                #     obj_component['COMPONENT'] = component.getparent().getparent().getchildren()[0].text
+                #     obj_component['ROOT'] = component.getparent().getparent().getparent().getparent().getchildren()[0].text
+                #     obj_component['DELETE'] = False
+                #     obj_component['TYPE'] = file['TYPE']
+                #     compositions.append(obj_component)
                 ibs = root.findall(".//{http://autosar.org/schema/r4.0}SWC-INTERNAL-BEHAVIOR")
                 for ib in ibs:
                     obj_behavior = {}
@@ -1551,7 +1712,20 @@ def create_mapping(files_list, composition, output_path, logger):
                     obj_behavior['ASWC'] = ib.getparent().getparent().getchildren()[0].text
                     obj_behavior['ROOT'] = ib.getparent().getparent().getparent().getparent().getchildren()[0].text
                     behaviors.append(obj_behavior)
-            if file.endswith('.xml'):
+                # component_type={}
+                # component_type['NAME'] = root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
+                # component_type['TYPE'] = file['TYPE']
+                # components_type.append(component_type)
+                component_type = root.findall(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
+                for elem in component_type:
+                    obj={}
+                    obj['ROOT'] = elem.getparent().getparent().getchildren()[0].text
+                    obj['NAME'] = elem.find('.//{http://autosar.org/schema/r4.0}SHORT-NAME').text
+                    obj['TYPE'] = file['TYPE']
+                    components_type.append(obj)
+
+        for file in files_cfg_list:
+            if file.endswith('.arxml'):
                 try:
                     check_if_xml_is_wellformed(file)
                     logger.info('The file: ' + file + ' is well-formed')
@@ -1563,13 +1737,59 @@ def create_mapping(files_list, composition, output_path, logger):
                 parser = etree.XMLParser(remove_comments=True)
                 tree = objectify.parse(file, parser=parser)
                 root = tree.getroot()
-                swc = root.findall(".//SWC-ALLOCATION")
-                for element in swc:
-                    obj_event = {}
-                    obj_event['SWC'] = element.find('SWC-REF').text
-                    obj_event['CORE'] = element.find('CORE').text
-                    obj_event['PARTITION'] = element.find('PARTITION').text
-                    swc_allocation.append(obj_event)
+                components = root.findall(".//{http://autosar.org/schema/r4.0}SW-COMPONENT-PROTOTYPE")
+                for component in components:
+                    obj_component = {}
+                    obj_component['INSTANCE'] = component.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                    obj_component['SWC'] = component.find(".//{http://autosar.org/schema/r4.0}TYPE-TREF").text
+                    obj_component['COMPONENT'] = component.getparent().getparent().getchildren()[0].text
+                    obj_component['ROOT'] = component.getparent().getparent().getparent().getparent().getchildren()[0].text
+                    obj_component['DELETE'] = False
+                    obj_component['TYPE'] = ""
+                    compositions.append(obj_component)
+            # if file['FILE'].endswith('.xml'):
+            #     try:
+            #         check_if_xml_is_wellformed(file['FILE'])
+            #         logger.info('The file: ' + file['FILE'] + ' is well-formed')
+            #         info_no = info_no + 1
+            #     except Exception as e:
+            #         logger.error('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
+            #         print('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
+            #         error_no = error_no + 1
+            #     parser = etree.XMLParser(remove_comments=True)
+            #     tree = objectify.parse(file['FILE'], parser=parser)
+            #     root = tree.getroot()
+            #     swc = root.findall(".//SWC-ALLOCATION")
+            #     for element in swc:
+            #         obj_event = {}
+            #         obj_event['SWC'] = element.find('SWC-REF').text
+            #         obj_event['CORE'] = element.find('CORE').text
+            #         obj_event['PARTITION'] = element.find('PARTITION').text
+            #         obj_event['TYPE'] = file['TYPE']
+            #         swc_allocation.append(obj_event)
+
+        for elem in compositions:
+            for elem2 in components_type:
+                if elem['SWC'] == '/' + elem2['ROOT'] + '/' + elem2['NAME']:
+                    elem['TYPE'] = elem2['TYPE']
+
+
+
+        copy_swc = swc_allocation[:]
+        for index1 in range(len(copy_swc)):
+            for index2 in range(len(copy_swc)):
+                if index1 != index2 and index1 < index2:
+                    if copy_swc[index1]['SWC'] == copy_swc[index2]['SWC']:
+                        if copy_swc[index1]['CORE'] != copy_swc[index2]['CORE'] or copy_swc[index1]['PARTITION'] != \
+                                copy_swc[index2]['PARTITION']:
+                            logger.error('The SWC ' + copy_swc[index1]['SWC'] + 'has multiple different allocations')
+                            print('The SWC ' + copy_swc[index1]['SWC'] + 'has multiple different allocations')
+                            os.remove(output_path + '/MemMap.epc')
+                        else:
+                            if copy_swc[index1]['CORE'] == copy_swc[index2]['CORE'] or copy_swc[index1]['PARTITION'] == \
+                                    copy_swc[index2]['PARTITION']:
+                                swc_allocation.remove(copy_swc[index2])
+
         # remove duplicate compositions (from multiple input sources)
         compositions = list(remove_duplicates(compositions))
         # check if compositions respects the given path; if not, delete them from treatment list
@@ -1597,8 +1817,50 @@ def create_mapping(files_list, composition, output_path, logger):
                     obj_elem['IMPLEMENTATION'] = None
                     obj_elem['RESSOURCE'] = None
                     obj_elem['CODE'] = None
+                    obj_elem['TYPE'] = compo['TYPE']
                     data_elements.append(obj_elem)
+
+        # create swc list with no duplicates
+        ok = 0
+        obj_element={}
+        obj_element['CORE'] = data_elements[0]['CORE']
+        obj_element['PARTITION'] = data_elements[0]['PARTITION']
+        obj_element['TYPE'] = data_elements[0]['TYPE']
+        swc_no_duplicates =[]
+        swc_no_duplicates.append(obj_element)
+        for elem in data_elements:
+            for elem2 in swc_no_duplicates:
+                if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION']:
+                    ok = 1
+                    break
+            if ok == 0:
+                obj_elem2 = {}
+                obj_elem2['CORE'] = elem['CORE']
+                obj_elem2['PARTITION'] = elem['PARTITION']
+                obj_elem2['TYPE'] = elem['TYPE']
+                swc_no_duplicates.append(obj_elem2)
+            ok=0
+
+        #create list of cores
+        ok = 0
+        obj_element = {}
+        obj_element['CORE'] = data_elements[0]['CORE']
+        list_cores = []
+        list_cores.append(obj_element)
+        for elem in data_elements:
+            for elem2 in list_cores:
+                if elem['CORE'] == elem2['CORE'] :
+                    ok = 1
+                    break
+            if ok == 0:
+                obj_elem2 = {}
+                obj_elem2['CORE'] = elem['CORE']
+                list_cores.append(obj_elem2)
+            ok=0
+
+
         # add internal behavior to the element list:
+        # for elem in swc_allocation:
         for elem in data_elements:
             for behavior in behaviors:
                 if elem['SWC'].split("/")[-1] == behavior['ASWC'] and elem['SWC'].split("/")[-2] == behavior['ROOT']:
@@ -1658,13 +1920,2684 @@ def create_mapping(files_list, composition, output_path, logger):
             expression3 = etree.SubElement(operation3, 'Expression').text = "'ASPath:/MemMap/MemMap/MemMapAddressingModeSet_VSM_CODE_" + elem['CORE'] + "'"
         pretty_xml = prettify_xml(rootScript)
         tree = etree.ElementTree(etree.fromstring(pretty_xml))
-        tree.write(output_path + "/MemMapSectionSpecificMapping.xml", encoding="UTF-8", xml_declaration=True, method="xml")
+        #tree.write(output_path + "/MemMapSectionSpecificMapping.xml", encoding="UTF-8", xml_declaration=True, method="xml")
+
+        # create output script xml->epc
+        rootSystem = etree.Element('AUTOSAR', {attr_qname: 'http://autosar.org/schema/r4.0 AUTOSAR_4-2-2_STRICT_COMPACT.xsd'}, nsmap=NSMAP)
+        packages = etree.SubElement(rootSystem, 'AR-PACKAGES')
+        package = ""
+        compo = etree.SubElement(packages, 'AR-PACKAGE')
+        short_name = etree.SubElement(compo, 'SHORT-NAME').text = "MemMap"
+        elements = etree.SubElement(compo, 'ELEMENTS')
+        moduleConfiguration = etree.SubElement(elements,'ECUC-MODULE-CONFIGURATION-VALUES')
+        short_name = etree.SubElement(moduleConfiguration,'SHORT-NAME').text = 'MemMap'
+        definition = etree.SubElement(moduleConfiguration, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-MODULE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap"
+        configVariant = etree.SubElement(moduleConfiguration, 'IMPLEMENTATION-CONFIG-VARIANT').text = 'VARIANT-PRE-COMPILE'
+        containers = etree.SubElement(moduleConfiguration,'CONTAINERS')
+
+        container = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container, 'SHORT-NAME').text = "MemMapAllocation_0"
+        definition2 = etree.SubElement(container, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation"
+        sub_container = etree.SubElement(container, 'SUB-CONTAINERS')
+
+        for elem in data_elements:
+            container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['SWC'].split("/")[-1]
+            definition = etree.SubElement(container2, 'DEFINITION-REF')
+            definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+            definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+            reference_values = etree.SubElement(container2,'REFERENCE-VALUES')
+            reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+            definition = etree.SubElement(reference1, 'DEFINITION-REF')
+            definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+            definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+            value = etree.SubElement(reference1, 'VALUE-REF')
+            value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+            value.text = "/" + elem['ROOTP'] + '/' + elem['IMPLEMENTATION'] + '/' + elem['RESSOURCE'] + '/' + elem['CODE'] + ""
+            reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+            definition = etree.SubElement(reference2, 'DEFINITION-REF')
+            definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+            definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+            value = etree.SubElement(reference2, 'VALUE-REF')
+            value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+            value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CODE_" + elem['CORE'] + ""
+
+            if elem['TYPE'] == 'acme':
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['SWC'].split("/")[-1] + '_START_SEC_INTER_NO_INIT_QM_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION']+ '/Resources/INTER_NO_INIT_QM_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_NO_INIT_INTER_QM"
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_NO_INIT_QM_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/INTER_NO_INIT_QM_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_NO_INIT_INTER_QM"
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_NO_INIT_QM_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/INTER_NO_INIT_QM_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_NO_INIT_INTER_QM"
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_NO_INIT_QM_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/INTER_NO_INIT_QM_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_NO_INIT_INTER_QM"
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_INIT_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_INIT_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_INIT_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_INIT_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_INIT_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_INIT_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_INIT_' + \
+                                                                               elem['PARTITION'] + '_' + elem['CORE'] + '_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_INIT_' + elem['PARTITION'] + '_' + elem['CORE'] + '_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_CLEARED_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_CLEARED_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_CLEARED_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_CLEARED_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_CLEARED_' + elem['PARTITION'] + '_'+ elem['CORE'] +'_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_CLEARED_' + elem['PARTITION'] + '_' + elem['CORE'] + '_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_INTER_CLEARED_' + \
+                                                                               elem['PARTITION'] + '_' + elem['CORE'] + '_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['PARTITION'] + '_' + elem['CORE'] + '/Resources/INTER_CLEARED_' + elem['PARTITION'] + '_' + elem['CORE'] + '_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_INTER_" + elem['PARTITION'] + '_' + elem['CORE']
+
+            if elem['TYPE'] == 'acme' or elem['TYPE'] == 'aswc':
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_INIT_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_INIT_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_INIT_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_INIT_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_INIT_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_INIT_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_INIT_VAR_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_INIT_VAR_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_CLEARED_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_CLEARED_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_CLEARED_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_CLEARED_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_CLEARED_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_CLEARED_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PRIVATE_CLEARED_VAR_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PRIVATE_CLEARED_VAR_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PRIVATE_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_INIT_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_INIT_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_INIT_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_INIT_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_INIT_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_INIT_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_INIT_VAR_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_INIT_VAR_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_CLEARED_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_CLEARED_VAR_8'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_CLEARED_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_CLEARED_VAR_16'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_CLEARED_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_CLEARED_VAR_32'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
+                                                                               elem['SWC'].split("/")[-1] + '_START_SEC_PUBLIC_CLEARED_VAR_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/RootP_Implementation/Implementation_" + elem['CORE'] + '_' + elem['PARTITION'] + '/Resources/PUBLIC_CLEARED_VAR_UNSPECIFIED'
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_CLEARED_PUBLIC_" + elem['CORE'] + '_' + elem['PARTITION']
+
+
+        for elem in swc_no_duplicates:
+            if elem['TYPE'] == 'rte':
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + elem['PARTITION'].upper() + "_VAR_8"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_VAR_16"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_VAR_32"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_UNSPECIFIED"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PRIVATE_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_SHARED_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_8'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_VAR_8"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_SHARED_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_16'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_VAR_16"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_SHARED_' + elem['CORE'] + '_' + elem['PARTITION'] + '_VAR_32'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_VAR_32"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + "_" + elem['PARTITION']
+
+                container2 = etree.SubElement(sub_container, 'ECUC-CONTAINER-VALUE')
+                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_SHARED_' + elem['CORE'] + '_' + elem['PARTITION'] + '_UNSPECIFIED'
+                definition = etree.SubElement(container2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                value = etree.SubElement(reference1, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                             elem['PARTITION'].upper() + "_UNSPECIFIED"
+                reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                value = etree.SubElement(reference2, 'VALUE-REF')
+                value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_PUBLIC_" + elem['CORE'] + "_" + elem['PARTITION']
+
+        all_swcs=''
+        for elem in swc_no_duplicates:
+            all_swcs = all_swcs + elem['CORE'] + '_' + elem['PARTITION'] + '_'
+
+        container2 = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + all_swcs + 'VAR_8'
+        definition = etree.SubElement(container2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+        reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+        reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                     elem['PARTITION'].upper() + "_VAR_8"
+        reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_QM_CORE0"
+
+        container2 = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + all_swcs  + 'VAR_16'
+        definition = etree.SubElement(container2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+        reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+        reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                     elem['PARTITION'].upper() + "_VAR_16"
+        reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_QM_CORE0"
+
+        container2 = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + all_swcs + 'VAR_32'
+        definition = etree.SubElement(container2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+        reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+        reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                     elem['PARTITION'].upper() + "_VAR_32"
+        reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_QM_CORE0"
+
+        container2 = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapSectionSpecificMapping_RTE_START_SEC_' + all_swcs +'_UNSPECIFIED'
+        definition = etree.SubElement(container2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+        reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+        reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+        value = etree.SubElement(reference1, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/EB_Rte/Implementations/BswImplementation_0/ResourceConsumption/OSAPP_" + elem['CORE'].upper() + "_" + \
+                     elem['PARTITION'].upper() + "_UNSPECIFIED"
+        reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+        value = etree.SubElement(reference2, 'VALUE-REF')
+        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+        value.text = "/MemMap/MemMap/MemMapAddressingModeSet_VSM_INIT_INTER_QM_CORE0"
+
+        for elem in swc_no_duplicates:
+            container2 = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_CLEARED_INTER_' + elem['PARTITION'] + '_' + elem['CORE']
+            definition2 = etree.SubElement(container2, 'DEFINITION-REF')
+            definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container2 = etree.SubElement(container2,'SUB-CONTAINERS')
+
+            container_value= etree.SubElement(sub_container2,'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value,'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value,'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values,'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".bss.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() +  '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+            container3 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name_2 = etree.SubElement(container3,'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_INIT_INTER_' + elem['PARTITION'] + '_' + elem['CORE']
+            definition3 = etree.SubElement(container3, 'DEFINITION-REF')
+            definition3.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container3 = etree.SubElement(container3, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+
+
+        container_inter_qm = etree.SubElement(containers,'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_inter_qm, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_NO_INIT_INTER_QM'
+        definition2 = etree.SubElement(container_inter_qm, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_inter_qm, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".no_init.inter.qm.core0.VAR_16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".no_init.inter.qm.core0.VAR_32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".no_init.inter.qm.core0.VAR_8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_no_init = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_no_init,'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_NO_INIT'
+        definition2 = etree.SubElement(container_no_init, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_no_init,'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2,'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2,'VALUE').text ='NO-INIT'
+        sub_container3 = etree.SubElement(container_no_init, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".no_init.inter.core0.VAR_NO_INIT_16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".no_init.core0.VAR_NO_INIT_32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".no_init.core0.VAR_NO_INIT_8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_power_on_init = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_power_on_init, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_POWER_ON_INIT'
+        definition2 = etree.SubElement(container_power_on_init, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_power_on_init, 'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2, 'VALUE').text = 'POWER-ON-INIT'
+        sub_container3 = etree.SubElement(container_power_on_init, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".power_on_data.VAR_POWER_ON_INIT_16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".power_on_data.VAR_POWER_ON_INIT_32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".power_on_data.VAR_POWER_ON_INIT_8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_vsm_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_vsm_cleared,'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_CLEARED'
+        definition2 = etree.SubElement(container_vsm_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_vsm_cleared, 'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2, 'VALUE').text = 'CLEARED'
+        sub_container3 = etree.SubElement(container_vsm_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".bss.core0.VAR_CLEARED_16" awB 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_256bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".core0.VAR_CLEARED_256" awB 32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '256'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.core0.VAR_CLEARED_32" awB 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".bss.core0.VAR_CLEARED_8" awB 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_power_on_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_power_on_cleared, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_POWER_ON_CLEARED'
+        definition2 = etree.SubElement(container_power_on_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_power_on_cleared, 'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2, 'VALUE').text = 'POWER-ON-CLEARED'
+        sub_container3 = etree.SubElement(container_power_on_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".power_on_bss.VAR_POWER_ON_CLEARED_16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".power_on_bss.VAR_POWER_ON_CLEARED_32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".power_on_bss.VAR_POWER_ON_CLEARED_8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_const = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_const,'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_CONST'
+        definition2 = etree.SubElement(container_const, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_const, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".rodata.CONST_16" a 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".rodata.CONST_32" a 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".rodata.CONST_8" a 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+        for elem in list_cores:
+            container_code_core0 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container_code_core0, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_CODE_' + elem['CORE']
+            definition2 = etree.SubElement(container_code_core0, 'DEFINITION-REF')
+            definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            parameter_values2 = etree.SubElement(container_code_core0, 'PARAMETER-VALUES')
+            textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+            definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionType"
+            value2 = etree.SubElement(textual_param2, 'VALUE').text = 'MEMMAP_SECTION_TYPE_CODE'
+            sub_container3 = etree.SubElement(container_code_core0, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_code_app_' + elem['CORE'].lower()
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param,'VALUE').text = '#pragma section ".code_app.' + elem['CORE'].lower() + '" ax'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+        for elem in list_cores:
+            container_code_swp_core0 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container_code_swp_core0, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_CODE_SWP_' + elem['CORE']
+            definition2 = etree.SubElement(container_code_swp_core0, 'DEFINITION-REF')
+            definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            parameter_values2 = etree.SubElement(container_code_swp_core0, 'PARAMETER-VALUES')
+            textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+            definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionType"
+            value2 = etree.SubElement(textual_param2, 'VALUE').text = 'MEMMAP_SECTION_TYPE_CODE'
+            sub_container3 = etree.SubElement(container_code_swp_core0, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_code_swp_' + elem['CORE'].lower()
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".code_swp.' + elem['CORE'].lower() + '" ax'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+
+        container_shared_init = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_shared_init, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_SHARED_INIT'
+        definition2 = etree.SubElement(container_shared_init, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_shared_init, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_data.16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_data.32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_data.8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_shared_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_shared_cleared, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_SHARED_CLEARED'
+        definition2 = etree.SubElement(container_shared_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_shared_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_bss.16" awB 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_bss.32" awB 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_bss.8" awB 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_shared_boot_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_shared_boot_cleared, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_SHARED_BOOT_CLEARED'
+        definition2 = etree.SubElement(container_shared_boot_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_shared_boot_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_boot.16" awB 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_boot.32" awB 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_boot.8" awB 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_shared_factory_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_shared_factory_cleared, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_SHARED_FACTORY_CLEARED'
+        definition2 = etree.SubElement(container_shared_factory_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_shared_factory_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_factory.16" awB 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_factory.32" awB 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".shared_factory.8" awB 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        container_spi_cleared = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_spi_cleared, 'SHORT-NAME').text = 'MemMapAddressingModeSet_SPI_CLEARED'
+        definition2 = etree.SubElement(container_spi_cleared, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_spi_cleared, 'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2, 'VALUE').text = 'CLEARED'
+        sub_container3 = etree.SubElement(container_spi_cleared, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_256bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".core0.VAR_CLEARED_256" awB 32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '256'
+
+        container_vsm_data = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_vsm_data, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_DATA'
+        definition2 = etree.SubElement(container_vsm_data, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_vsm_data, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".variant_cfg" a 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_vsm_data_header = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_vsm_data_header, 'SHORT-NAME').text = 'MemMapAddressingModeSet_VSM_DATA_HEADER'
+        definition2 = etree.SubElement(container_vsm_data_header, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        sub_container3 = etree.SubElement(container_vsm_data_header, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".variant_cfg_header" a 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_ssp_no_init = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+        short_name = etree.SubElement(container_ssp_no_init, 'SHORT-NAME').text = 'MemMapAddressingModeSet_SSP_NO_INIT'
+        definition2 = etree.SubElement(container_ssp_no_init, 'DEFINITION-REF')
+        definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+        parameter_values2 = etree.SubElement(container_ssp_no_init, 'PARAMETER-VALUES')
+        textual_param2 = etree.SubElement(parameter_values2, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition3 = etree.SubElement(textual_param2, 'DEFINITION-REF')
+        definition3.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapSupportedSectionInitializationPolicy"
+        value2 = etree.SubElement(textual_param2, 'VALUE').text = 'INIT'
+        sub_container3 = etree.SubElement(container_ssp_no_init, 'SUB-CONTAINERS')
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.core0.VAR_16" aw 2'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.core0.VAR_32" aw 4'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+        container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+        short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+        definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+        definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+        definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+        parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.core0.VAR_8" aw 1'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+        textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+        definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+        definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+        definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+        value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+
+
+        for elem in swc_no_duplicates:
+            #if swc_no_duplicates['TYPE'] == 'aswc':
+            container2 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapAddressingMode_VSM_CLEARED_PRIVATE_' + elem['CORE'] + '_' + elem['PARTITION']
+            definition2 = etree.SubElement(container2, 'DEFINITION-REF')
+            definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container2 = etree.SubElement(container2, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+            container3 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name_2 = etree.SubElement(container3, 'SHORT-NAME').text = 'MemMapAddressingMode_VSM_INIT_PRIVATE_' + elem['CORE'] + '_' + elem['PARTITION']
+            definition3 = etree.SubElement(container3, 'DEFINITION-REF')
+            definition3.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container3 = etree.SubElement(container3, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.private.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+
+
+        for elem in swc_no_duplicates:
+            #if swc_no_duplicates['TYPE'] == 'aswc':
+            container2 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name = etree.SubElement(container2,'SHORT-NAME').text = 'MemMapAddressingMode_VSM_CLEARED_PUBLIC_' + elem['CORE'] + '_' + elem['PARTITION']
+            definition2 = etree.SubElement(container2, 'DEFINITION-REF')
+            definition2.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition2.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container2 = etree.SubElement(container2, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container2, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".bss.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+            container3 = etree.SubElement(containers, 'ECUC-CONTAINER-VALUE')
+            short_name_2 = etree.SubElement(container3, 'SHORT-NAME').text = 'MemMapAddressingMode_VSM_INIT_PUBLIC_' + elem['CORE'] + '_' + elem['PARTITION']
+            definition3 = etree.SubElement(container3, 'DEFINITION-REF')
+            definition3.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition3.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet"
+            sub_container3 = etree.SubElement(container3, 'SUB-CONTAINERS')
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_16bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_16" aw 2'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '16'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_32bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_32" aw 4'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '32'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'UNSPECIFIED'
+
+            container_value = etree.SubElement(sub_container3, 'ECUC-CONTAINER-VALUE')
+            short_name_cv = etree.SubElement(container_value, 'SHORT-NAME').text = 'MemMapAddressingMode_8bits'
+            definition_sc = etree.SubElement(container_value, 'DEFINITION-REF')
+            definition_sc.attrib['DEST'] = "ECUC-PARAM-CONF-CONTAINER-DEF"
+            definition_sc.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode"
+            parameter_values = etree.SubElement(container_value, 'PARAMETER-VALUES')
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStart"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section ".data.public.' + elem['PARTITION'].lower() + '.' + elem['CORE'].lower() + '.VAR_8" aw 1'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-MULTILINE-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAddressingModeStop"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '#pragma section'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = '8'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = 'BOOLEAN'
+            textual_param = etree.SubElement(parameter_values, 'ECUC-TEXTUAL-PARAM-VALUE')
+            definition_tp = etree.SubElement(textual_param, 'DEFINITION-REF')
+            definition_tp.attrib['DEST'] = "ECUC-STRING-PARAM-DEF"
+            definition_tp.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAddressingModeSet/MemMapAddressingMode/MemMapAlignmentSelector"
+            value_tp = etree.SubElement(textual_param, 'VALUE').text = ''
+
+        pretty_xml = prettify_xml(rootSystem)
+        tree = etree.ElementTree(etree.fromstring(pretty_xml))
+        #tree.write(output_path + "/MemMap.epc", encoding="UTF-8", xml_declaration=True, method="xml")
+        tree.write(output_path + "/MemMap.epc", encoding="UTF-8", xml_declaration=True, method="xml", doctype="<!-- XML file generated by RTE_Configurator v1.0.1 -->")
+
     ###########################################
         if error_no != 0:
             print("There is at least one blocking error! Check the generated log.")
             print("\nMemory mapping creation script stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
             try:
                 os.remove(output_path + '/MemMapSectionSpecificMapping.xml')
+                os.remove(output_path + '/MemMap.epc')
             except OSError:
                 pass
             sys.exit(1)
@@ -1675,9 +4608,16 @@ def create_mapping(files_list, composition, output_path, logger):
         print("\nMemory mapping creation script stopped with: " + str(info_no) + " infos, " + str(warning_no) + " warnings, " + str(error_no) + " errors\n")
         try:
             os.remove(output_path + '/MemMapSectionSpecificMapping.xml')
+            os.remove(output_path + '/MemMap.epc')
         except OSError:
             pass
         sys.exit(1)
+
+
+
+
+
+
 
 
 def unique_items(list_to_check):
