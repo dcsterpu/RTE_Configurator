@@ -177,6 +177,7 @@ def main():
     parser = argparse.ArgumentParser()
     arg_parse(parser)
     args = parser.parse_args()
+    merged_files_path = args.in_Aswc_Merged
     input_cfg_path = args.inp
     aswc_path = args.aswc
     acme_path = args.acme
@@ -370,8 +371,7 @@ def main():
                                                                    logger, debugger, rte)
             if mem_map:
                 variables = parse_config_memmap(mem_config_path, logger)
-                ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc,
-                               output_path, logger,variables)
+                ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc, output_path, logger,variables, merged_files_path)
                 error_no = error_no + ret[0]
                 info_no = info_no + ret[1]
                 warning_no = warning_no + ret[2]
@@ -398,8 +398,7 @@ def main():
                                                                    logger, debugger, rte)
             if mem_map:
                 variables = parse_config_memmap(mem_config_path, logger)
-                ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc,
-                               output_path, logger,variables)
+                ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc, output_path, logger,variables, merged_files_path)
                 error_no = error_no + ret[0]
                 info_no = info_no + ret[1]
                 warning_no = warning_no + ret[2]
@@ -439,7 +438,7 @@ def main():
                 if mem_map:
                     variables = parse_config_memmap(mem_config_path, logger)
                     ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc,
-                                   output_log, logger,variables)
+                                   output_log, logger,variables, merged_files_path)
                     error_no = error_no + ret[0]
                     info_no = info_no + ret[1]
                     warning_no = warning_no + ret[2]
@@ -467,8 +466,8 @@ def main():
                 if mem_map:
                     variables = parse_config_memmap(mem_config_path, logger)
                     ret = memmap_creator(entry_list, swc_allocation, memory_mappings, memmap_adressing_mode_set,
-                                         list_alloc, output_epc, logger,variables)
-                    memmap_creator(entry_list,swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc, output_path,  logger,variables)
+                                         list_alloc, output_epc, logger,variables,merged_files_path)
+                    memmap_creator(entry_list,swc_allocation, memory_mappings, memmap_adressing_mode_set, list_alloc, output_path,  logger,variables,merged_files_path)
                     error_no = error_no + ret[0]
                     info_no = info_no + ret[1]
                     warning_no = warning_no + ret[2]
@@ -604,21 +603,17 @@ def merge_events(event_list, logger, output_path):
                                         events[index_of_events]['BEFORE-EVENT'].append(elem)
                         if events[index_of_events]['CATEGORY'] == 'DEFAULT':
                             events[index_of_events]['CATEGORY'] = event_list[index1]['CATEGORY']
-                    # else:
-                    #     events.append(event_list[index1])
     return events
 
 
 def arg_parse(parser):
+    parser.add_argument('-in_Aswc_Merged', '--in_Aswc_Merged', help="Memmap files configuration", required=False, default="")
     parser.add_argument('-in_config_memmap', '--in_config_memmap', help="Memmap configuration script", required=False, default="")
     parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=False, default="")
     parser.add_argument('-osconfig', '--osconfig', help="Os configuration script", required=True, default="")
     # parser.add_argument('-out', '--out', help="Output path", required=False, default="")
-    parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False,
-                        default="")
-    # parser.add_argument('-out_script', '--out_script', help="output path for memory mapping script file", required=False, default="")
-    parser.add_argument('-out_epc', '--out_epc', help="output path for RTE configuration file", required=False,
-                        default="")
+    parser.add_argument('-default_duration', '--default_duration', help="event default duration (µs)", required=False, default="")
+    parser.add_argument('-out_epc', '--out_epc', help="output path for RTE configuration file", required=False, default="")
     parser.add_argument('-out_log', '--out_log', help="output path for log file", required=False, default="")
     parser.add_argument('-MemMap', action="store_const", const="-MemMap", required=False, default="")
     parser.add_argument('-compo', '--compo', help="composition name", required=False, default="")
@@ -1277,9 +1272,13 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                 task = None
                 category = 'DEFAULT'
                 duration = '0'
+                bool_com = False
                 for child in element.iterchildren():
                     if child.tag == 'SHORT-NAME':
                         name = child.text
+                    if child.tag == 'CONTAIN-COM-ACCESS':
+                        if child.text in ["True", "true"]:
+                            bool_com = True
                     if child.tag == 'EVENT-REF':
                         obj_event['EVENT'] = child.text
                     if child.tag == 'DURATION':
@@ -1299,6 +1298,7 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                     if child.tag == 'CATEGORY':
                         category = child.text
                 obj_event['NAME'] = name
+                obj_event['COM-ACCESS'] = bool_com
                 obj_event['DURATION'] = duration
                 obj_event['AFTER-EVENT'] = after_list
                 obj_event['BEFORE-EVENT'] = before_list
@@ -1350,18 +1350,6 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
             pass
         sys.exit(1)
 
-    # for elem in swc_allocation[:]:
-    #     for elem2 in swc_allocation[:]:
-    #         if swc_allocation.index(elem) != swc_allocation.index(elem2):
-    #             if elem['SWC'] == elem2['SWC']:
-    #                 if elem['CORE'] != elem2['CORE'] or elem['PARTITION'] != elem2['PARTITION']:
-    #                     logger.error('The SWC ' + elem2['SWC'] + 'has multiple different allocations')
-    #                     print('The SWC ' + elem2['SWC'] + 'has multiple different allocations')
-    #                     os.remove(output_path + '/MemMap.epc')
-    #                 else :
-    #                     if elem['CORE'] == elem2['CORE'] or elem['PARTITION'] == elem2['PARTITION']:
-    #                         swc_allocation.remove(elem2)
-
     copy_swc = swc_allocation[:]
     for index1 in range(len(copy_swc)):
         for index2 in range(len(copy_swc)):
@@ -1379,8 +1367,7 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
 
     for implementation in implementations:
         for behavior in ibehaviors:
-            if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME'] and implementation['BEHAVIOR'].split("/")[
-                -2] == behavior['ASWC']:
+            if implementation['BEHAVIOR'].split("/")[-1] == behavior['NAME'] and implementation['BEHAVIOR'].split("/")[-2] == behavior['ASWC']:
                 objTemp = {}
                 objTemp['NAME'] = behavior['ASWC']
                 objTemp['SWC-REF'] = "/" + behavior['ROOT'] + "/" + behavior['ASWC']
@@ -1402,6 +1389,8 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                 elem_aswc['EVENT-REF'] = elem_rte['EVENT']
                 if elem_rte['DURATION'] != '0':
                     elem_aswc['DURATION'] = elem_rte['DURATION']
+                if elem_rte['COM-ACCESS'] == False and elem_aswc['TYPE'] == "PER":
+                    elem_aswc['TYPE'] = "PER_SLOW"
     for elem_swc in swc_allocation:
         for elem_aswc in events_aswc:
             if "/" + elem_aswc['ROOT'] + "/" + elem_aswc['ASWC'] in elem_swc['SWC']:
@@ -1425,8 +1414,7 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
     for elem in events_aswc:
         if elem['ACTIVATION'] == "ON-ENTRY":
             for elem2 in events_aswc:
-                if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2[
-                    'TYPE'] and elem['ASWC'] == elem2['ASWC'] and elem2['ACTIVATION'] == "ON-EXIT":
+                if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION'] and elem['TYPE'] == elem2['TYPE'] and elem['ASWC'] == elem2['ASWC'] and elem2['ACTIVATION'] == "ON-EXIT":
                     elem['AFTER-EVENT'].append(elem2['NAME'])
 
     g = Graph(len(events_aswc))
@@ -1506,33 +1494,30 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                             else:
                                 tasked = False
                                 for task in tasks_general:
-                                    if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and \
-                                            events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem][
-                                        'PARTITION'] == task['PARTITION']:
+                                    if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
+                                        if events_aswc[elem]['TYPE'] == "PER" and task['NAME'].endswith("_PER"):
+                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                            tasked = True
+                                            break
+                                        if events_aswc[elem]['TYPE'] == "PER_SLOW" and task['NAME'].endswith("_PER_SLOW"):
+                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                            tasked = True
+                                            break
+                                    elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
                                         obj_event['MAPPED-TO-TASK'] = task['NAME']
                                         tasked = True
                                         break
-                                    elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task[
-                                        'CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and \
-                                            events_aswc[elem]['PARTITION'] == task['PARTITION']:
-                                        obj_event['MAPPED-TO-TASK'] = task['NAME']
-                                        tasked = True
-                                        break
-                                    elif events_aswc[elem]['CATEGORY'] == "DIAG" and task['CATEGORY'] == "DIAG" and \
-                                            events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem][
-                                        'PARTITION'] == task['PARTITION']:
+                                    elif events_aswc[elem]['CATEGORY'] == "DIAG" and task['CATEGORY'] == "DIAG" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
                                         obj_event['MAPPED-TO-TASK'] = task['NAME']
                                         tasked = True
                                         break
                                 if not tasked:
-                                    logger.error('The event ' + events_aswc[elem][
-                                        'NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
+                                    logger.error('The event ' + events_aswc[elem]['NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
                                     print('The event ' + events_aswc[elem][
                                         'NAME'] + ' is mapped to a wrong CORE or PARTITION. Check the software allocation file!')
                                     error_no = error_no + 1
                     except Exception as e:
-                        logger.error(
-                            'CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
+                        logger.error('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
                         print('CORE or PARTITION not set for SWC-REF:' + events_aswc[elem]['ASWC'] + " -> " + str(e))
                         error_no = error_no + 1
                     obj_event['REF'] = events_aswc[elem]['REF']
@@ -1716,8 +1701,6 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                         continue
     # # dump data to debug file
     debugger.info("=============Event order ===========")
-    # for element in orderUnique:
-    #     debugger.info(element["BEFORE"] + " => " + element["AFTER"])
     chains = []
     for index1 in range(len(order)):
         chain = []
@@ -1945,28 +1928,26 @@ def create_configuration(events, aswcs, swc_types, output_path):
                  doctype="<!-- XML file generated by RTE_Configurator v1.0.1 -->")
     return
 
-def memmap_creator(entry_list, swc_allocation, mms, mams, la, output_path, l,variables):
+def memmap_creator(entry_list, swc_allocation, mms, mams, la, output_path, l,variables,merged_files_path):
     global debugger_memmap
     errors = 0
     infos = 0
     warnings = 0
+    merged_file = []
+    merged_file.append(merged_files_path)
 
     if debugState:
         debugger_memmap = set_debugger('', 'CONSOLE')
         debugger_memmap.debug(" Depart memmap_creator : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(infos))
 
-    ret = create_mapping(mms, entry_list, l, swc_allocation,variables)
+    ret = create_mapping(mms, entry_list, l, swc_allocation,variables,merged_file)
     errors = errors + ret[0]
     infos = infos + ret[1]
     warnings = warnings + ret[2]
-
-
-
     ret = check_mapping(mms, l,variables)
     errors = errors + ret[0]
     infos = infos + ret[1]
     warnings = warnings + ret[2]
-
     create_list_swc_alloc(mms, la)
 
     ###########################################
@@ -1975,20 +1956,17 @@ def memmap_creator(entry_list, swc_allocation, mms, mams, la, output_path, l,var
     else:
         create_MemMapAddressingModeSet(mms, la, mams)
         generate_mapping(mms, mams, output_path,variables)
-
     if debugState:
-        debugger_memmap.debug("Fin memmap_creator : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(
-        infos))
+        debugger_memmap.debug("Fin memmap_creator : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(infos))
 
     return errors, infos, warnings
 
 
 def create_list_swc_alloc(memory_mappings, list_swc_alloc):
     if debugState:
-        debugger_memmap.debug ("Creation of list allocation in progress ")
+        debugger_memmap.debug("Creation of list allocation in progress ")
 
     list_of_alloc = []
-
 
     for mm in memory_mappings:
         if 'CORE' in mm:
@@ -1996,7 +1974,6 @@ def create_list_swc_alloc(memory_mappings, list_swc_alloc):
             obj['CORE'] = mm['CORE']
             obj['PARTITION'] = mm['PARTITION']
             list_of_alloc.append(obj)
-
         if 'MEMORY_SECTIONS' in mm:
             for elem in mm['MEMORY_SECTIONS']:
                 if 'CORE' in elem:
@@ -2017,199 +1994,285 @@ def create_list_swc_alloc(memory_mappings, list_swc_alloc):
         if not already_in_list:
             list_swc_alloc.append(elem)
 
-    # for mm in memory_mappings:
-    #     already_in_list = False
-    #     if mm['TYPE'] != 'BSW_RTE' and mm['TYPE'] != 'BSW_OTHER':
-    #         if 'CORE' in mm and 'PARTITION' in mm:
-    #             elem = {}
-    #             elem['CORE'] = mm['CORE']
-    #             elem['PARTITION'] = mm['PARTITION']
-    #
-    #             for elem2 in list_swc_alloc:
-    #                 if elem['CORE'] == elem2['CORE'] and elem['PARTITION'] == elem2['PARTITION']:
-    #                     already_in_list = True
-    #                     break
-    #                 else:
-    #                     already_in_list = False
-    #
-    #             if not already_in_list:
-    #                 list_swc_alloc.append(elem)
-
     if debugState:
         debugger_memmap.debug ("Creation of list allocation is terminated")
 
 # This function creates the memory_mappings structure with all informations necessary
-def create_mapping(memory_mappings, files_list, logger, swc_allocation,variables):
+def create_mapping(memory_mappings, files_list, logger, swc_allocation,variables,merged_file):
     errors = 0
     informations = 0
     warnings = 0
 
     if debugState:
-        debugger_memmap.debug("Depart create_mapping : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(
-        informations))
+        debugger_memmap.debug("Depart create_mapping : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(informations))
 
-    NSMAP = {None: 'http://autosar.org/schema/r4.0',
-             "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
+    NSMAP = {None: 'http://autosar.org/schema/r4.0', "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
     attr_qname = etree.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
 
     try:
-        for file in files_list:
-            if file['FILE'].endswith('.arxml'):
+        for file in merged_file:
+            if file.endswith('.arxml'):
                 try:
-                    check_if_xml_is_wellformed(file['FILE'])
-                    logger.info('The file: ' + file['FILE'] + ' is well-formed')
+                    check_if_xml_is_wellformed(file)
+                    logger.info('The file: ' + file + ' is well-formed')
                     informations = informations + 1
                 except Exception as e:
-                    logger.error('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
+                    logger.error('The file: ' + file + ' is not well-formed: ' + str(e))
                     if debugState:
-                        debugger_memmap.debug('The file: ' + file['FILE'] + ' is not well-formed: ' + str(e))
+                        debugger_memmap.debug('The file: ' + file + ' is not well-formed: ' + str(e))
                     errors = errors + 1
 
                 type_file = 'BAD_FILE'
 
                 parser = etree.XMLParser(remove_comments=True)
-                tree = objectify.parse(file['FILE'], parser=parser)
+                tree = objectify.parse(file, parser=parser)
                 root = tree.getroot()
 
                 # Quid des SERVICE-SW-COMPONENT-TYPE
+                packages = []
+                arpackage = root.findall(".//{http://autosar.org/schema/r4.0}AR-PACKAGE")
+                for package in arpackage:
+                    if package.getparent().tag == '{http://autosar.org/schema/r4.0}AR-PACKAGES':
+                        obj = {}
+                        obj['FILE'] = package.getchildren()[0].text
+                        packages.append(obj)
 
+                for package in packages:
+                    for file in files_list:
+                        ok = 0
+                        if  '_' in file['FILE'].split('/')[1].split('.')[0]:
+                            pth = file['FILE'].split('/')[1].split('.')[0].split('_',1)[1]
+                        else:
+                            pth = file['FILE'].split('/')[1].split('.')[0]
+                        if pth in package['FILE']:
+                            package['TYPE'] = file['TYPE']
+                            continue
+
+                for file in files_list:
+                    ok = 0
+                    for package in packages:
+                        if  '_' in file['FILE'].split('/')[1].split('.')[0]:
+                            pth = file['FILE'].split('/')[1].split('.')[0].split('_',1)[1]
+                        else:
+                            pth = file['FILE'].split('/')[1].split('.')[0]
+                        if pth in package['FILE']:
+                            ok = 1
+                    if ok == 0:
+                        logger.info(file['FILE'] + " has no use in AswcMerged")
+                        print(file['FILE'] + "  has no use in AswcMerged")
+
+                for package in packages:
+                    if 'TYPE' not in package.keys():
+                        logger.info(package['FILE'] + " has no file attributed")
+                        print(package['FILE'] + " has no file attributed")
+
+                lll = len(packages)
+                i = 0
+                while (i < lll):
+                    if 'TYPE' not in packages[i].keys():
+                        packages.remove(packages[i])
+                        lll = lll - 1
+                    else:
+                        i = i + 1
+
+                for file in packages:
                 # Use-case of an ASWC Application file
-                if file['TYPE'] == 'aswc':
-                    apsc = root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
-                    sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
-                    if len(sections) > 0 and apsc is not None:
-                        type_file = 'ASWC_APP'
-                    else:
-                        type_file = 'BAD_FILE'
-
-                # Use-case of a ACME file
-                elif file['TYPE'] == 'acme':
-                    apsc = root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
-                    sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
-                    if len(sections) > 0 and apsc is not None:
-                        type_file = 'ASWC_ACME'
-                    else:
-                        bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
-                        sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
-                        if len(sections) > 0 and bmd is not None:
-                            type_file = 'BSW_ACME'
+                    if file['TYPE'] == 'aswc':
+                        ok = 0
+                        ok1 = 0
+                        apsc = root.findall(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
+                        for aps in apsc:
+                            if aps.getparent().getparent().getchildren()[0].text == file['FILE']:
+                                ok = 1
+                                apsc = aps
+                                break
+                        sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                        for section in sections:
+                            if file['FILE'].split("_",1)[1] or file['FILE'].split("_",1)[1].split("_",1)[1]  in section.getchildren()[0].text:
+                                ok1 = 1
+                                break
+                        if ok1 == 1 and ok == 1:
+                            type_file = 'ASWC_APP'
                         else:
                             type_file = 'BAD_FILE'
 
-                # Use-case of a BSW file but not RTE
-                elif file['TYPE'] == 'bsw':
-                    bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
-                    sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
-                    if len(sections) > 0 and bmd is not None:
-                        type_file = 'BSW_OTHER'
-                    else:
-                        type_file = 'BAD_FILE'
+                    # Use-case of a ACME file
+                    elif file['TYPE'] == 'acme':
+                        ok = 0
+                        ok1 = 0
+                        apsc = root.findall(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
+                        for aps in apsc:
+                            if aps.getparent().getparent().getchildren()[0].text == file['FILE']:
+                                ok = 1
+                                apsc = aps
+                                break
+                        sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                        for section in sections:
+                            if file['FILE'].split("_",1)[1] or file['FILE'].split("_",1)[1].split("_",1)[1] in section.getchildren()[0].text:
+                                ok1 = 1
+                                break
+                        if ok1 == 1 and ok == 1:
+                            type_file = 'ASWC_ACME'
+                        else:
+                            ok = 0
+                            ok1 = 0
+                            bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
+                            for bm in bmd:
+                                if aps.getparent().getparent().getchildren()[0].text == file['FILE']:
+                                    ok = 1
+                                    bmd = bm
+                                    break
+                            sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                            for section in sections:
+                                if file['FILE'].split("_", 1)[1] or file['FILE'].split("_",1)[1].split("_",1)[1] in section.getchildren()[0].text:
+                                    ok1 = 1
+                                    break
+                            if ok1 == 1 and ok == 1:
+                                type_file = 'BSW_ACME'
+                            else:
+                                type_file = 'BAD_FILE'
 
-                # Use-case of the RTE BSW File
-                elif file['TYPE'] == 'rte':
-                    bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
-                    sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
-                    if len(sections) > 0 and bmd is not None:
-                        type_file = 'BSW_RTE'
-                    else:
-                        type_file = 'BAD_FILE'
+                    # Use-case of a BSW file but not RTE
+                    elif file['TYPE'] == 'bsw':
+                        ok = 0
+                        ok1 = 0
+                        bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
+                        for bm in bmd:
+                            if aps.getparent().getparent().getchildren()[0].text == file['FILE']:
+                                ok = 1
+                                bmd = bm
+                                break
+                        sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                        for section in sections:
+                            if file['FILE'].split("_", 1)[1] or file['FILE'].split("_",1)[1].split("_",1)[1] in section.getchildren()[0].text:
+                                ok1 = 1
+                                break
+                        if ok1 == 1 and ok == 1:
+                            type_file = 'BSW_OTHER'
+                        else:
+                            type_file = 'BAD_FILE'
 
-                if type_file != 'BAD_FILE':
-                    #Get the Application software component type and the name component in the case of a ASWC_APP or ASWC_ACME
-                    if type_file == 'ASWC_APP' or type_file == 'ASWC_ACME':
-                        #apsc = root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
-                        name_component = apsc.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
-                        # Use API Find in place of findall because we don't manage the multi SWC-IMPLEMENTATION
-                        # sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
-                        section = root.find(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                    # Use-case of the RTE BSW File
+                    elif file['TYPE'] == 'rte':
+                        ok = 0
+                        ok1 = 0
+                        bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
+                        for bm in bmd:
+                            if aps.getparent().getparent().getchildren()[0].text == file['FILE']:
+                                ok = 1
+                                bmd = bm
+                                break
+                        sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                        for section in sections:
+                            if file['FILE'].split("_", 1)[1]  or file['FILE'].split("_",1)[1].split("_",1)[1] in section.getchildren()[0].text:
+                                ok1 = 1
+                                break
+                        if ok1 == 1 and ok == 1:
+                            type_file = 'BSW_RTE'
+                        else:
+                            type_file = 'BAD_FILE'
 
-                    # Get the Basic Software Module Description and the name component in the case of a ASWC_APP or ASWC_ACME
-                    if type_file == 'BSW_OTHER' or type_file == 'BSW_RTE' or type_file == 'BSW_ACME':
-                        #bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
-                        name_component = bmd.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
-                        #Use API Find in place of findall because we don't manage the multi BSW-IMPLEMENTATION
-                        # sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
-                        section = root.find(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                    if type_file != 'BAD_FILE':
+                        #Get the Application software component type and the name component in the case of a ASWC_APP or ASWC_ACME
+                        if type_file == 'ASWC_APP' or type_file == 'ASWC_ACME':
+                            #apsc = root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE")
+                            name_component = apsc.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                            # Use API Find in place of findall because we don't manage the multi SWC-IMPLEMENTATION
+                            # sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                            #section = root.find(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                            sections = root.findall(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION")
+                            for s in sections:
+                                if file['FILE'].split("_", 1)[1] in s.getchildren()[0].text:
+                                    section = s
+                                    break
 
-                    # We treat te first BSW-IMPLEMENTATION
-                    if section is not None:
-                        obj = {}
-                        obj['TYPE'] = type_file
-                        obj['NAME_COMPONENT'] = name_component
-                        obj['MEMORY_SECTIONS'] = []
+                        # Get the Basic Software Module Description and the name component in the case of a ASWC_APP or ASWC_ACME
+                        if type_file == 'BSW_OTHER' or type_file == 'BSW_RTE' or type_file == 'BSW_ACME':
+                            #bmd = root.find(".//{http://autosar.org/schema/r4.0}BSW-MODULE-DESCRIPTION")
+                            name_component = bmd.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                            #Use API Find in place of findall because we don't manage the multi BSW-IMPLEMENTATION
+                            # sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                            #section = root.find(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                            sections = root.findall(".//{http://autosar.org/schema/r4.0}BSW-IMPLEMENTATION")
+                            for s in sections:
+                                if file['FILE'].split("_", 1)[1] in s.getchildren()[0].text:
+                                    section = s
+                                    break
 
-                        # Get the sections define for the component
-                        if section.find(".//{http://autosar.org/schema/r4.0}MEMORY-SECTION/{http://autosar.org/schema/r4.0}SHORT-NAME") is not None:
-                            memory_sections = section.findall(".//{http://autosar.org/schema/r4.0}MEMORY-SECTION/{http://autosar.org/schema/r4.0}SHORT-NAME")
-                            if len(memory_sections) > 0:
-                                for ms in memory_sections:
-                                    memory_section = {}
-                                    if obj['TYPE'] == 'BSW_RTE' or obj['TYPE'] == 'BSW_ACME' or obj['TYPE'] == 'BSW_OTHER':
-                                        RootP_name = \
-                                        ms.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[
-                                            0].text + '/'+ ms.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[
-                                            0].text
-                                    else:
-                                        RootP_name = ms.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
-                                    Implementation_name = ms.getparent().getparent().getparent().getparent().getchildren()[0].text
-                                    Resources_name = ms.getparent().getparent().getparent().getchildren()[0].text
-                                    #if file['TYPE'] == 'rte':
-                                    memory_section['NAME_MS'] = ms.text
-                                    memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + ms.text
-                                    # if file['TYPE'] == 'acme':
-                                    #     memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + ms.text
-                                    obj['MEMORY_SECTIONS'].append(memory_section)
+                        # We treat te first BSW-IMPLEMENTATION
+                        if section is not None:
+                            obj = {}
+                            obj['TYPE'] = type_file
+                            obj['NAME_COMPONENT'] = name_component
+                            obj['MEMORY_SECTIONS'] = []
 
-                                # if file['TYPE'] == 'aswc':
-                                #     for variable in variables:
-                                #         if 'APPLICATIVE' in variable.keys():
-                                #             ob = {}
-                                #             ob['NAME_MS'] = variable['APPLICATIVE']
-                                #             memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + variable['APPLICATIVE']
-                                #             obj['MEMORY_SECTIONS'].append(ob)
-                                # if file['TYPE'] == 'acme':
-                                #     for variable in variables:
-                                #         if 'ACME' in variable.keys():
-                                #             ob = {}
-                                #             ob['NAME_MS'] = variable['ACME']
-                                #             memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + variable['ACME']
-                                #             obj['MEMORY_SECTIONS'].append(ob)
-                                # if file['TYPE'] == 'rte':
-                                #     for variable in variables:
-                                #         ob = {}
-                                #         ob['NAME_MS'] = variable['VAR-SHARED-ONEOSAPP']
-                                #         obj['MEMORY_SECTIONS'].append(ob)
+                            # Get the sections define for the component
+                            if section.find(".//{http://autosar.org/schema/r4.0}MEMORY-SECTION/{http://autosar.org/schema/r4.0}SHORT-NAME") is not None:
+                                memory_sections = section.findall(".//{http://autosar.org/schema/r4.0}MEMORY-SECTION/{http://autosar.org/schema/r4.0}SHORT-NAME")
+                                if len(memory_sections) > 0:
+                                    for ms in memory_sections:
+                                        memory_section = {}
+                                        if obj['TYPE'] == 'BSW_RTE' or obj['TYPE'] == 'BSW_ACME' or obj['TYPE'] == 'BSW_OTHER':
+                                            root_existence =  ms.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                                            if (not (root_existence and root_existence.strip())):
+                                                RootP_name = \
+                                                ms.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[
+                                                    0].text
+                                            else:
+                                                RootP_name = \
+                                                ms.getparent().getparent().getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[
+                                                    0].text + '/' + \
+                                                ms.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[
+                                                    0].text
 
 
 
-                        # Get the SW-ADDRMETHOD-REF for the component
-                        sam = root.find(".//{http://autosar.org/schema/r4.0}SW-ADDR-METHOD")
-                        if sam is not None:
-                            section_type = sam.find(".//{http://autosar.org/schema/r4.0}SECTION-TYPE").text
+                                        else:
+                                            RootP_name = ms.getparent().getparent().getparent().getparent().getparent().getparent().getchildren()[0].text
+                                        Implementation_name = ms.getparent().getparent().getparent().getparent().getchildren()[0].text
+                                        Resources_name = ms.getparent().getparent().getparent().getchildren()[0].text
+                                        #if file['TYPE'] == 'rte':
+                                        memory_section['NAME_MS'] = ms.text
+                                        memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + ms.text
+                                        # if file['TYPE'] == 'acme':
+                                        #     memory_section['PATH_MS'] = '/' + RootP_name + '/' + Implementation_name + '/' + Resources_name + '/' + ms.text
+                                        obj['MEMORY_SECTIONS'].append(memory_section)
 
-                            if section_type == 'CODE':
-                                obj['METHOD'] = sam.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                            # Get the SW-ADDRMETHOD-REF for the component
+                            sam = root.find(".//{http://autosar.org/schema/r4.0}SW-ADDR-METHOD")
+                            if sam is not None:
+                                section_type = sam.find(".//{http://autosar.org/schema/r4.0}SECTION-TYPE").text
+
+                                if section_type == 'CODE':
+                                    obj['METHOD'] = sam.find(".//{http://autosar.org/schema/r4.0}SHORT-NAME").text
+                                else:
+                                    obj['METHOD'] = None
                             else:
                                 obj['METHOD'] = None
-                        else:
-                            obj['METHOD'] = None
+                            if file['TYPE'] == "aswc" or file['TYPE'] == 'acme':
+                                    if root.find(".//{http://autosar.org/schema/r4.0}APPLICATION-SW-COMPONENT-TYPE") is not None and root.find(".//{http://autosar.org/schema/r4.0}SWC-IMPLEMENTATION") is not None:
+                                        swref = root.find(".//{http://autosar.org/schema/r4.0}SW-ADDRMETHOD-REF")
+                                        if swref is None:
+                                            logger.error('There is no <SW-ADDRMETHOD-REF> given for ' + file['FILE'])
+                                            print('There is no <SW-ADDRMETHOD-REF> given for ' + file['FILE'])
+                                            #sys.exit(1)
+                                            errors = errors + 1
 
-                        # Get the allocation for the component
-                        for component_alloc in swc_allocation:
-                            name_component = '/RootP_' + obj['NAME_COMPONENT'] + '/' + obj['NAME_COMPONENT']
-                            if name_component == component_alloc['SWC']:
-                                if 'CORE' not in obj :
-                                    obj['CORE'] = []
-                                if 'PARTITION' not in obj:
-                                    obj['PARTITION'] = []
-                                obj['CORE'].append(component_alloc['CORE'])
-                                obj['PARTITION'].append(component_alloc['PARTITION'])
-                        #Add the component informations in the data memory_mappings
-                        obj['FISIER'] = file['TYPE']
-                        memory_mappings.append(obj)
-                    else:
-                        if debugState == True:
-                            debugger_memmap.debug('The file: ' + file['FILE'] + ' is not a type of file to consume')
+                            # Get the allocation for the component
+                            for component_alloc in swc_allocation:
+                                # name_component = '/RootP_' + obj['NAME_COMPONENT'] + '/' + obj['NAME_COMPONENT']
+                                if obj['NAME_COMPONENT'] == component_alloc['SWC'].split("/")[-1]:
+                                    if 'CORE' not in obj:
+                                        obj['CORE'] = []
+                                    if 'PARTITION' not in obj:
+                                        obj['PARTITION'] = []
+                                    obj['CORE'].append(component_alloc['CORE'])
+                                    obj['PARTITION'].append(component_alloc['PARTITION'])
+                                # Add the component informations in the data memory_mappings
+                            memory_mappings.append(obj)
+                        else:
+                            if debugState == True:
+                                debugger_memmap.debug('The file: ' + file['FILE'] + ' is not a type of file to consume')
     except Exception as e:
         print("Unexpected error: " + str(e))
         print("\nMemory mapping creation script stopped with: " + str(informations) + " infos, " + str(
@@ -2217,9 +2280,16 @@ def create_mapping(memory_mappings, files_list, logger, swc_allocation,variables
         sys.exit(1)
 
     if debugState:
-        debugger_memmap.debug("Fin create_mapping : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(
-            warnings) + " Nombre d'info : " + str(
-            informations))
+        debugger_memmap.debug("Fin create_mapping : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(informations))
+
+    if errors != 0:
+        sys.exit(1)
+
+    for mms in memory_mappings:
+        if "BSW" in mms['TYPE']:
+            mms['CORE'] = ['CORE0']
+            mms['PARTITION'] = ['SWPQM']
+
     return errors, informations, warnings
 
 # This function create the MemMapAdressingModeSet
@@ -2242,22 +2312,75 @@ def create_MemMapAddressingModeSet( mms , list_sw_alloc, mams):
             obj['CORE']= elem['CORE']
             list_cores.append(obj)
 
-    for elem in list_sw_alloc:
+    list_cores_partitions = []
+    obj1 = {}
+    obj1['PARTITION'] = 'QM'
+    obj1['CORE'] = 'CORE0'
+    list_cores_partitions.append(obj1)
+    obj2 = {}
+    obj2['PARTITION'] = 'QM'
+    obj2['CORE'] = 'CORE1'
+    list_cores_partitions.append(obj2)
+    obj3 = {}
+    obj3['PARTITION'] = 'ASIL_B'
+    obj3['CORE'] = 'CORE0'
+    list_cores_partitions.append(obj3)
+    obj4 = {}
+    obj4['PARTITION'] = 'ASIL_B'
+    obj4['CORE'] = 'CORE1'
+    list_cores_partitions.append(obj4)
+
+    for elem in list_cores_partitions:
         # Use-case VSM_CLEARED_INTER
-        obj={}
-        obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_CLEARED_' + elem['PARTITION'][0] + '_' + elem['CORE'][0]
-        obj['PRAGMA_8BITS'] = '#pragma section ".bss.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
-        obj['PRAGMA_16BITS'] = '#pragma section ".bss.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
-        obj['PRAGMA_32BITS'] = '#pragma section ".bss.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
+        obj = {}
+        obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_CLEARED_' + elem['PARTITION'] + '_' + elem['CORE']
+        obj['PRAGMA_8BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_8" aw 1'
+        obj['PRAGMA_16BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_16" aw 2'
+        obj['PRAGMA_32BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_32" aw 4'
         mams.append(obj)
 
-        #Use-case VSM_INIT_INTER
+        # Use-case VSM_INIT_INTER
         obj = {}
-        obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_INIT_' + elem['PARTITION'][0] + '_' + elem['CORE'][0]
-        obj['PRAGMA_8BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
-        obj['PRAGMA_16BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
-        obj['PRAGMA_32BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
+        obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_INIT_' + elem['PARTITION'] + '_' + elem['CORE']
+        obj['PRAGMA_8BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_8" aw 1'
+        obj['PRAGMA_16BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_16" aw 2'
+        obj['PRAGMA_32BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'].lower() + '.' + elem[
+            'CORE'].lower() + '.VAR_32" aw 4'
         mams.append(obj)
+
+        # Use-case VSM_NO_INIT_INTER_<PARTITION>_<CORE>
+        if elem['CORE'] == 'CORE0':
+            obj = {}
+            obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_NO_INIT_' + elem['PARTITION'] + '_' + elem['CORE']
+            obj['PRAGMA_8BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'].lower() + '.' + elem[
+                'CORE'].lower() + '.VAR_8" aw 1'
+            obj['PRAGMA_16BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'].lower() + '.' + elem[
+                'CORE'].lower() + '.VAR_16" aw 2'
+            obj['PRAGMA_32BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'].lower() + '.' + elem[
+                'CORE'].lower() + '.VAR_32" aw 4'
+            mams.append(obj)
+
+    for elem in list_sw_alloc:
+        # # Use-case VSM_CLEARED_INTER
+        # obj={}
+        # obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_CLEARED_' + elem['PARTITION'][0] + '_' + elem['CORE'][0]
+        # obj['PRAGMA_8BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
+        # obj['PRAGMA_16BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
+        # obj['PRAGMA_32BITS'] = '#pragma section ".bss.cleared.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
+        # mams.append(obj)
+        #
+        # #Use-case VSM_INIT_INTER
+        # obj = {}
+        # obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_INIT_' + elem['PARTITION'][0] + '_' + elem['CORE'][0]
+        # obj['PRAGMA_8BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
+        # obj['PRAGMA_16BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
+        # obj['PRAGMA_32BITS'] = '#pragma section ".data.inter.' + elem['PARTITION'][0] .lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
+        # mams.append(obj)
 
         #Use-case VSM_CLEARED_PRIVATE_<CORE>_<PARTITION>
         obj = {}
@@ -2289,14 +2412,6 @@ def create_MemMapAddressingModeSet( mms , list_sw_alloc, mams):
         obj['PRAGMA_8BITS'] = '#pragma section ".data.public.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
         obj['PRAGMA_16BITS'] = '#pragma section ".data.public.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
         obj['PRAGMA_32BITS'] = '#pragma section ".data.public.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
-        mams.append(obj)
-
-        # Use-case VSM_NO_INIT_INTER_<PARTITION>_<CORE>
-        obj = {}
-        obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_NO_INIT_' + elem['PARTITION'][0] + '_' + elem['CORE'][0]
-        obj['PRAGMA_8BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_8" aw 1'
-        obj['PRAGMA_16BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_16" aw 2'
-        obj['PRAGMA_32BITS'] = '#pragma section ".no_init.inter.' + elem['PARTITION'][0].lower() + '.' + elem['CORE'][0].lower() + '.VAR_32" aw 4'
         mams.append(obj)
 
     # Use-case  RTE with OSAPP
@@ -2361,14 +2476,6 @@ def create_MemMapAddressingModeSet( mms , list_sw_alloc, mams):
         obj['NAME2'] = 'MemMapAddressingModeSet_code_swp_' + core['CORE'][0].lower()
         obj['CODE'] = '#pragma section ".code_swp.' + core['CORE'][0].lower() + '" ax'
         mams.append(obj)
-
-    # Use-case VSM_NO_INIT_INTER_QM
-    # obj = {}
-    # obj['NAME'] = 'MemMapAddressingModeSet_VSM_INTER_NO_INIT_QM'
-    # obj['PRAGMA_8BITS'] = '#pragma section ".no_init.inter.qm.core0.VAR_8" aw 1'
-    # obj['PRAGMA_16BITS'] = '#pragma section ".no_init.inter.qm.core0.VAR_16" aw 2'
-    # obj['PRAGMA_32BITS'] = '#pragma section ".no_init.inter.qm.core0.VAR_32" aw 4'
-    # mams.append(obj)
 
     # Use-case VSM_NO_INIT
     obj = {}
@@ -2515,11 +2622,11 @@ def check_mapping(mms, l,variables):
             remove_component = True
 
         # Use-case of a component without SW-ADDRMETHOD-REF
-        if mm['METHOD'] is None:
-            l.warning('There is no <SW-ADDRMETHOD-REF> given for ASWC ' + mm['NAME_COMPONENT'])
-            print('There is no <SW-ADDRMETHOD-REF> given for ASWC ' + mm['NAME_COMPONENT'])
-            warnings = warnings + 1
-            remove_component = True
+        # if mm['METHOD'] is None:
+        #     l.warning('There is no <SW-ADDRMETHOD-REF> given for ASWC ' + mm['NAME_COMPONENT'])
+        #     print('There is no <SW-ADDRMETHOD-REF> given for ASWC ' + mm['NAME_COMPONENT'])
+        #     warnings = warnings + 1
+        #     remove_component = True
 
         if remove_component == True:
             if mm in mms:
@@ -2613,29 +2720,9 @@ def checking_memory_section_APP_COMPONENT(mm, l):
                     memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_INIT_' + mm['CORE'][0] + '_' + mm['PARTITION'][0]
                     pattern_confirmed = True
 
-                    #Attente de confirmation de la part de Yann si il faut utiliser le code ci-dessous
-                    # if mm['CORE'][0] == 'CORE0':
-                    #     # memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_INIT_CORE0_QM'
-                    #     pattern_confirmed = True
-                    # elif mm['CORE'][0] =='CORE1':
-                    #     memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_INIT_CORE1_QM'
-                    #     pattern_confirmed = True
-                    # else:
-                    #     pattern_confirmed = False
-
                 if memory_section['NAME_MS'] == pattern[1]:
-                    memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_INIT_' + mm['CORE'][0] + '_' + mm['PARTITION'][0]
+                    memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_CLEARED_' + mm['CORE'][0] + '_' + mm['PARTITION'][0]
                     pattern_confirmed = True
-
-                    # Attente de confirmation de la part de Yann si il faut utiliser le code ci-dessous
-                    # if mm['CORE'][0] == 'CORE0':
-                    #     memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_CLEARED_CORE0_QM'
-                    #     pattern_confirmed = True
-                    # elif mm['CORE'][0] == 'CORE1':
-                    #     memory_section['MEMMAP_ADDRESS_MODE_SET'] = 'MemMapAddressingModeSet_VSM_PRIVATE_CLEARED_CORE1_QM'
-                    #     pattern_confirmed = True
-                    # else:
-                    #     pattern_confirmed = False
 
             if pattern_confirmed:
                 str = 'Component ' + mm['NAME_COMPONENT'] + ' : The pattern ' + memory_section['NAME_MS'] + ' of the section name is conformed'
@@ -2672,6 +2759,16 @@ def checking_memory_section_ACME_COMPONENT(mm, l):
 
     if debugState:
         debugger_memmap.debug('Checking memory section for the component ' + mm['NAME_COMPONENT'] + ' in progress')
+
+    if mm['TYPE'] == 'BSW_ACME':
+        ok = 0
+        for memory in mm['MEMORY_SECTIONS']:
+            if 'CODE' in memory.values():
+                ok = 1
+        if ok == 0:
+            obj = {}
+            obj['NAME_MS'] = 'CODE'
+            mm['MEMORY_SECTIONS'].append(obj)
 
     for memory_section in mm['MEMORY_SECTIONS']:
         pattern_confirmed = False
@@ -2785,7 +2882,7 @@ def checking_memory_section_ACME_COMPONENT(mm, l):
 
 
 # This function checks the differents points unavoidable for a memory section the BSW RTE
-def checking_memory_section_RTE_COMPONENT(mm, l,variables):
+def checking_memory_section_RTE_COMPONENT(mm, l, variables):
     errors = 0
     informations = 0
     warnings = 0
@@ -2796,7 +2893,6 @@ def checking_memory_section_RTE_COMPONENT(mm, l,variables):
         debugger_memmap.debug('Checking memory section for the component ' + mm['NAME_COMPONENT'] + ' in progress')
 
     # RTE/ CODE , < OSAPPLICATIONNAME > _VAR_[8, 16, 32, UNSPECIFIED] / SHARED_ < OSAPPLICATIONNAME > _VAR_[8, 16, 32, UNSPECIFIED] / SHARED_{ < OSAPPLICATIONNAME_1 >, < OSAPPLICATIONNAME_2 >, ...}_VAR_[8, 16, 32]
-
     for memory_section in mm['MEMORY_SECTIONS']:
         pattern_confirmed = False
 
@@ -3011,7 +3107,7 @@ def generate_MemMapSectionSpecificMapping(mms, sc,variables):
                 else:
                     for variable in variables:
                         if 'APPLICATIVE' in variable.keys():
-                            if re.match(ms['NAME_MS'],variable['APPLICATIVE']):
+                            if re.match(variable['APPLICATIVE'],ms['NAME_MS']):
                                 # for pattern in zip(MS_PRIVATE_INIT, MS_PRIVATE_CLEARED, MS_PUBLIC_INIT, MS_PUBLIC_CLEARED, MS_INTER_NOINIT, MS_INTER_INIT, MS_INTER_INIT, MS_INTER_CLEARED):
                                 #     if ms['NAME_MS'] == pattern[0] or ms['NAME_MS'] == pattern[1] or ms['NAME_MS'] == pattern[2] or ms['NAME_MS'] == pattern[3] or ms['NAME_MS'] == pattern[4] or ms['NAME_MS']  == pattern[5] or ms['NAME_MS'] == pattern[6] or ms['NAME_MS'] == pattern[7]:
                                 container2 = etree.SubElement(sc, 'ECUC-CONTAINER-VALUE')
@@ -3043,9 +3139,7 @@ def generate_MemMapSectionSpecificMapping(mms, sc,variables):
             for ms in elem['MEMORY_SECTIONS']:
                 if ms['NAME_MS'] == 'CODE':
                     container2 = etree.SubElement(sc, 'ECUC-CONTAINER-VALUE')
-                    short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
-                                                                                   elem['NAME_COMPONENT'].split(
-                                                                                       "/")[-1]
+                    short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['NAME_COMPONENT'].split("/")[-1]
                     definition = etree.SubElement(container2, 'DEFINITION-REF')
                     definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
                     definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
@@ -3064,19 +3158,14 @@ def generate_MemMapSectionSpecificMapping(mms, sc,variables):
                     value = etree.SubElement(reference2, 'VALUE-REF')
                     value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
                     value.text = "/MemMap/MemMap/" + ms['MEMMAP_ADDRESS_MODE_SET']
-
                 else:
                     for variable in variables:
                         if 'ACME' in variable.keys():
-                            if re.match(ms['NAME_MS'], variable['ACME']):
+                            if re.match(variable['ACME'], ms['NAME_MS']):
                                 # for pattern in zip(MS_PRIVATE_INIT, MS_PRIVATE_CLEARED, MS_PUBLIC_INIT, MS_PUBLIC_CLEARED, MS_INTER_NOINIT, MS_INTER_INIT, MS_INTER_INIT, MS_INTER_CLEARED):
                                 #     if ms['NAME_MS'] == pattern[0] or ms['NAME_MS'] == pattern[1] or ms['NAME_MS'] == pattern[2] or ms['NAME_MS'] == pattern[3] or ms['NAME_MS'] == pattern[4] or ms['NAME_MS']  == pattern[5] or ms['NAME_MS'] == pattern[6] or ms['NAME_MS'] == pattern[7]:
                                 container2 = etree.SubElement(sc, 'ECUC-CONTAINER-VALUE')
-                                short_name = etree.SubElement(container2,
-                                                              'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + \
-                                                                                   elem['NAME_COMPONENT'].split(
-                                                                                       "/")[-1] + '_START_SEC_' + \
-                                                                                   ms['NAME_MS']
+                                short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['NAME_COMPONENT'].split("/")[-1] + '_START_SEC_' + ms['NAME_MS']
                                 definition = etree.SubElement(container2, 'DEFINITION-REF')
                                 definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
                                 definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
@@ -3098,6 +3187,61 @@ def generate_MemMapSectionSpecificMapping(mms, sc,variables):
                                     value.text = "/MemMap/MemMap/" + ms['MEMMAP_ADDRESS_MODE_SET']
                                 else:
                                     print("toto")
+
+        if elem['TYPE'] == 'BSW_ACME':
+            for ms in elem['MEMORY_SECTIONS']:
+                if 'PATH_MS' in ms.keys():
+                    if ms['NAME_MS'] == 'CODE':
+                        container2 = etree.SubElement(sc, 'ECUC-CONTAINER-VALUE')
+                        short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['NAME_COMPONENT'].split("/")[-1]
+                        definition = etree.SubElement(container2, 'DEFINITION-REF')
+                        definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                        reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                        reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                        definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                        value = etree.SubElement(reference1, 'VALUE-REF')
+                        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                        value.text = ms['PATH_MS'] + ""
+                        reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                        definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                        definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                        definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                        value = etree.SubElement(reference2, 'VALUE-REF')
+                        value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                        value.text = "/MemMap/MemMap/" + ms['MEMMAP_ADDRESS_MODE_SET']
+                    else:
+                        for variable in variables:
+                            if 'ACME' in variable.keys():
+                                if re.match(variable['ACME'],ms['NAME_MS']):
+                                    # for pattern in zip(MS_PRIVATE_INIT, MS_PRIVATE_CLEARED, MS_PUBLIC_INIT, MS_PUBLIC_CLEARED, MS_INTER_NOINIT, MS_INTER_INIT, MS_INTER_INIT, MS_INTER_CLEARED):
+                                    #     if ms['NAME_MS'] == pattern[0] or ms['NAME_MS'] == pattern[1] or ms['NAME_MS'] == pattern[2] or ms['NAME_MS'] == pattern[3] or ms['NAME_MS'] == pattern[4] or ms['NAME_MS']  == pattern[5] or ms['NAME_MS'] == pattern[6] or ms['NAME_MS'] == pattern[7]:
+                                    container2 = etree.SubElement(sc, 'ECUC-CONTAINER-VALUE')
+                                    short_name = etree.SubElement(container2, 'SHORT-NAME').text = 'MemMapSectionSpecificMapping_' + elem['NAME_COMPONENT'].split("/")[-1] + '_START_SEC_' + ms['NAME_MS']
+                                    definition = etree.SubElement(container2, 'DEFINITION-REF')
+                                    definition.attrib['DEST'] = "ECUC-CHOICE-CONTAINER-DEF"
+                                    definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping"
+                                    reference_values = etree.SubElement(container2, 'REFERENCE-VALUES')
+                                    reference1 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                                    definition = etree.SubElement(reference1, 'DEFINITION-REF')
+                                    definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                                    definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapMemorySectionRef"
+                                    value = etree.SubElement(reference1, 'VALUE-REF')
+                                    value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                                    value.text = ms['PATH_MS'] + ""
+                                    reference2 = etree.SubElement(reference_values, 'ECUC-REFERENCE-VALUE')
+                                    definition = etree.SubElement(reference2, 'DEFINITION-REF')
+                                    definition.attrib['DEST'] = "ECUC-SYMBOLIC-NAME-REFERENCE-DEF"
+                                    definition.text = "/AUTOSAR/EcuDefs/MemMap/MemMapAllocation/MemMapSectionSpecificMapping/MemMapAddressingModeSetRef"
+                                    value = etree.SubElement(reference2, 'VALUE-REF')
+                                    value.attrib['DEST'] = "ECUC-CONTAINER-VALUE"
+                                    if 'MEMMAP_ADDRESS_MODE_SET' in ms:
+                                        value.text = "/MemMap/MemMap/" + ms['MEMMAP_ADDRESS_MODE_SET']
+                                    else:
+                                        print("toto")
+
 
         if elem['TYPE'] == 'BSW_RTE':
             for ms in elem['MEMORY_SECTIONS']:
