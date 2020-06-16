@@ -670,8 +670,7 @@ def set_debugger(path, mode):
         return debugger
 
 
-def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, output_path, default_duration, logger,
-                debugger, rte):
+def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, output_path, default_duration, logger, debugger, rte):
     events_rte = []
     events_aswc = []
     swc_allocation = []
@@ -1503,6 +1502,11 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                                             obj_event['MAPPED-TO-TASK'] = task['NAME']
                                             tasked = True
                                             break
+                                    elif events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == \
+                                            task['PARTITION']:
+                                        obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                        tasked = True
+                                        break
                                     elif events_aswc[elem]['CATEGORY'] == "PRIORITY_EVT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
                                         obj_event['MAPPED-TO-TASK'] = task['NAME']
                                         tasked = True
@@ -1721,7 +1725,7 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
             str(event['EVENT']) + ";" + str(event['PERIOD']) + ";" + str(event['ACTIVATION-OFFSET']) + ";" + str(
                 event['DURATION']) + ";" + str(event['MAPPED-TO-TASK']))
     #################################
-    if error_no != 0:
+    if error_no != 0 and rte:
         print("There is at least one blocking error! Check the generated log.")
         print("\nRTE configuration file generation stopped with: " + str(info_no) + " infos, " + str(
             warning_no) + " warnings, " + str(error_no) + " errors\n")
@@ -1940,7 +1944,7 @@ def memmap_creator(entry_list, swc_allocation, mms, mams, la, output_path, l,var
         debugger_memmap = set_debugger('', 'CONSOLE')
         debugger_memmap.debug(" Depart memmap_creator : Nombre d'erreur : " + str(errors) + " Nombre de warning : " + str(warnings) + " Nombre d'info : " + str(infos))
 
-    ret = create_mapping(mms, entry_list, l, swc_allocation,variables,merged_file)
+    ret = create_mapping(mms, entry_list, l, swc_allocation,merged_file)
     errors = errors + ret[0]
     infos = infos + ret[1]
     warnings = warnings + ret[2]
@@ -1998,7 +2002,7 @@ def create_list_swc_alloc(memory_mappings, list_swc_alloc):
         debugger_memmap.debug ("Creation of list allocation is terminated")
 
 # This function creates the memory_mappings structure with all informations necessary
-def create_mapping(memory_mappings, files_list, logger, swc_allocation,variables,merged_file):
+def create_mapping(memory_mappings, files_list, logger, swc_allocation,merged_file):
     errors = 0
     informations = 0
     warnings = 0
