@@ -1494,16 +1494,20 @@ def create_list(file_arxml_list, files_list, config, events, aswcs, swc_types, o
                                 tasked = False
                                 for task in tasks_general:
                                     if events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "PERIODIC" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
-                                        if events_aswc[elem]['TYPE'] == "PER" and task['NAME'].endswith("_PER"):
+                                        if task['CORE'] == "CORE0":
                                             obj_event['MAPPED-TO-TASK'] = task['NAME']
                                             tasked = True
                                             break
-                                        if events_aswc[elem]['TYPE'] == "PER_SLOW" and task['NAME'].endswith("_PER_SLOW"):
-                                            obj_event['MAPPED-TO-TASK'] = task['NAME']
-                                            tasked = True
-                                            break
-                                    elif events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == \
-                                            task['PARTITION']:
+                                        else:
+                                            if events_aswc[elem]['TYPE'] == "PER" and task['NAME'].endswith("_PER"):
+                                                obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                                tasked = True
+                                                break
+                                            if events_aswc[elem]['TYPE'] == "PER_SLOW" and task['NAME'].endswith("_LOW_PER"):
+                                                obj_event['MAPPED-TO-TASK'] = task['NAME']
+                                                tasked = True
+                                                break
+                                    elif events_aswc[elem]['CATEGORY'] == "DEFAULT" and task['CATEGORY'] == "EVENT" and events_aswc[elem]['CORE'] == task['CORE'] and events_aswc[elem]['PARTITION'] == task['PARTITION']:
                                         obj_event['MAPPED-TO-TASK'] = task['NAME']
                                         tasked = True
                                         break
