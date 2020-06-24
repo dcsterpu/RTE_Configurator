@@ -607,7 +607,7 @@ def merge_events(event_list, logger, output_path):
 
 
 def arg_parse(parser):
-    parser.add_argument('-in_Aswc_Merged', '--in_Aswc_Merged', help="Memmap files configuration", required=False, default="")
+    parser.add_argument('-in_aswc_merged', '--in_Aswc_Merged', help="Memmap files configuration", required=True, default="")
     parser.add_argument('-in_config_memmap', '--in_config_memmap', help="Memmap configuration script", required=False, default="")
     parser.add_argument('-in', '--inp', nargs='*', help="Input path or file", required=False, default="")
     parser.add_argument('-osconfig', '--osconfig', help="Os configuration script", required=True, default="")
